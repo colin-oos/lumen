@@ -371,7 +371,23 @@ function hoverInfo(ast, symbol) {
     for (const fn of fns) {
         const full = fn.module ? `${fn.module}.${fn.name}` : fn.name;
         if (fn.name === symbol || full === symbol)
-            return { kind: 'function', name: full, params: fn.params, returnType: fn.returnType, effects: Array.from(fn.effects) };
+            return { kind: 'function', name: full, module: fn.module || null, params: fn.params, returnType: fn.returnType, effects: Array.from(fn.effects) };
+    }
+    // stores and queries
+    currentModule = null;
+    for (const d of ast.decls) {
+        if (d.kind === 'ModuleDecl')
+            currentModule = d.name;
+        if (d.kind === 'StoreDecl') {
+            const full = currentModule ? `${currentModule}.${d.name}` : d.name;
+            if (d.name === symbol || full === symbol)
+                return { kind: 'store', name: full, module: currentModule || null, schema: d.schema };
+        }
+        if (d.kind === 'QueryDecl') {
+            const full = currentModule ? `${currentModule}.${d.name}` : d.name;
+            if (d.name === symbol || full === symbol)
+                return { kind: 'query', name: full, module: currentModule || null, source: d.source, projection: d.projection || [] };
+        }
     }
     return result;
 }
