@@ -39,6 +39,10 @@ function parseExprRD(src) {
     if (askMatch) {
         return { kind: 'Ask', sid: (0, core_ir_1.sid)('ask'), actor: parseExprRD(askMatch[1]), message: parseExprRD(askMatch[2]) };
     }
+    const sendMatch = src.match(/^send\s+([^,\s]+)\s*(?:,\s*|\s+)([\s\S]+)$/);
+    if (sendMatch) {
+        return { kind: 'Send', sid: (0, core_ir_1.sid)('send'), actor: parseExprRD(sendMatch[1]), message: parseExprRD(sendMatch[2]) };
+    }
     const spawnMatch = src.match(/^spawn\s+([^\s]+)$/);
     if (spawnMatch) {
         return { kind: 'Spawn', sid: (0, core_ir_1.sid)('spawn'), actorName: spawnMatch[1] };

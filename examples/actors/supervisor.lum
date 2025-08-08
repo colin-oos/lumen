@@ -1,0 +1,21 @@
+// Supervisor example (sketch)
+
+enum Msg = Crash | Ping | Get
+
+actor Worker {
+  state alive: Int = 1
+  on Ping() -> io.print("worker:pong")
+  on Get() reply Int -> alive
+}
+
+actor Supervisor {
+  state w: Int = 0
+  on Crash() -> { io.print("supervisor:restart"); }
+  on Ping() -> io.print("supervisor:ping")
+  on Get() reply Int -> 0
+}
+
+let s = spawn Supervisor
+send s Ping()
+let v = ask s Get()
+io.print(v)

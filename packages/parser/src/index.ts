@@ -34,6 +34,10 @@ function parseExprRD(src: string): Expr {
   if (askMatch) {
     return { kind: 'Ask', sid: sid('ask'), actor: parseExprRD(askMatch[1]), message: parseExprRD(askMatch[2]) } as any
   }
+  const sendMatch = src.match(/^send\s+([^,\s]+)\s*(?:,\s*|\s+)([\s\S]+)$/)
+  if (sendMatch) {
+    return { kind: 'Send', sid: sid('send'), actor: parseExprRD(sendMatch[1]), message: parseExprRD(sendMatch[2]) } as any
+  }
   const spawnMatch = src.match(/^spawn\s+([^\s]+)$/)
   if (spawnMatch) {
     return { kind: 'Spawn', sid: sid('spawn'), actorName: spawnMatch[1] } as any
