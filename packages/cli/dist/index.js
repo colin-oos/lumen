@@ -633,15 +633,29 @@ function checkTypesProject(files) {
             case 'Match': {
                 const _t = checkExpr(e.scrutinee, env, file);
                 let branchT = 'Unknown';
-                // collect constructors for exhaustiveness
+                // collect constructors for exhaustiveness and infer result type
                 const ctors = new Set();
                 let enumNameForCases = null;
                 let onlyCtors = true;
+                let allBranchesBaseType = null;
                 for (const c of e.cases) {
                     if (c.guard)
                         checkExpr(c.guard, env, file);
                     const bt = checkExpr(c.body, env, file);
-                    branchT = branchT === 'Unknown' ? bt : (bt === branchT ? bt : 'Unknown');
+                    // infer base type consensus
+                    if (bt === 'Int' || bt === 'Text' || bt === 'Bool' || bt === 'Unit') {
+                        allBranchesBaseType = allBranchesBaseType === null ? bt : (allBranchesBaseType === bt ? bt : 'Unknown');
+                    }
+                    else if (typeof bt === 'string' && bt.startsWith('ADT:')) {
+                        // track ADT result type
+                        const en = bt.slice(4);
+                        enumNameForCases = enumNameForCases ?? en;
+                        if (enumNameForCases !== en)
+                            allBranchesBaseType = 'Unknown';
+                    }
+                    else {
+                        allBranchesBaseType = 'Unknown';
+                    }
                     if (c.pattern?.kind === 'Ctor') {
                         const meta = ctorToEnum.get(c.pattern.name);
                         if (meta) {
@@ -665,6 +679,10 @@ function checkTypesProject(files) {
                     const missing = variants.map(v => v.name).filter(vn => !ctors.has(vn));
                     if (missing.length > 0)
                         errors.push(`${file}: match not exhaustive for ${enumNameForCases}; missing: ${missing.join(', ')}`);
+                    branchT = `ADT:${enumNameForCases}`;
+                }
+                else if (allBranchesBaseType && allBranchesBaseType !== 'Unknown') {
+                    branchT = allBranchesBaseType;
                 }
                 return branchT;
             }
@@ -723,8 +741,38 @@ function checkTypesProject(files) {
                     local.set(p.name, parseTypeName(p.type));
                 const bodyT = checkExpr(e.body, local, file);
                 const retT = parseTypeName(e.returnType);
-                if (e.returnType && retT !== 'Unknown' && bodyT !== 'Unknown' && retT !== bodyT) {
-                    errors.push(`${file}: function ${e.name ?? '<anon>'} returns ${bodyT} but declared ${retT}`);
+                if (e.returnType) {
+                    if (retT !== 'Unknown' && bodyT !== 'Unknown' && retT !== bodyT) {
+                        // if return is ADT:Enum and body is ADT:Enum, allow if same
+                        errors.push(`${file}: function ${e.name ?? '<anon>'} returns ${bodyT} but declared ${retT}`);
+                    }
+                    // additionally, if declared ADT, ensure body forms are constructors of that ADT (best-effort)
+                    if (typeof retT === 'string' && retT.startsWith('ADT:')) {
+                        const en = retT.slice(4);
+                        const violates = { ok: false };
+                        const verify = (expr) => {
+                            if (!expr || typeof expr !== 'object')
+                                return;
+                            if (expr.kind === 'Ctor') {
+                                const meta = ctorToEnum.get(expr.name);
+                                if (!meta || meta.enumName !== en)
+                                    violates.ok = true;
+                                return;
+                            }
+                            for (const k of Object.keys(expr)) {
+                                const v = expr[k];
+                                if (v && typeof v === 'object' && 'kind' in v)
+                                    verify(v);
+                                if (Array.isArray(v))
+                                    for (const it of v)
+                                        if (it && typeof it === 'object' && 'kind' in it)
+                                            verify(it);
+                            }
+                        };
+                        verify(e.body);
+                        if (violates.ok)
+                            errors.push(`${file}: function ${e.name ?? '<anon>'} declared ${retT} but returns constructor from different enum`);
+                    }
                 }
                 return 'Unknown';
             }
