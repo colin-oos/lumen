@@ -158,8 +158,9 @@ function parseExprRD(src: string): Expr {
             return { kind: 'EffectCall', sid: sid('eff'), effect: head as any, op, args }
           }
         }
-        // ADT constructor if starts with uppercase and is unqualified
-        if (/^[A-Z]/.test(name) && !name.includes('.')) {
+        // ADT constructor if the final segment starts with uppercase (qualified allowed)
+        const lastSeg = name.includes('.') ? name.split('.').pop() || '' : name
+        if (/^[A-Z]/.test(lastSeg)) {
           return { kind: 'Ctor', sid: sid('ctor'), name, args } as any
         }
         // spawn as expression: spawn Name -> treat as Call to builtin spawn

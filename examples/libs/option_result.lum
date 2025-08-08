@@ -1,0 +1,5 @@
+module option_result
+
+enum Option = Some(Int) | None
+
+enum Result = Ok(Int) | Err(Text)
