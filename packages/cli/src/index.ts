@@ -476,11 +476,13 @@ function checkTypesProject(files: Array<{ path: string, ast: any }>): { errors: 
   const enumToVariants = new Map<string, Array<{ name: string }>>()
   const schemas = new Map<string, Record<string, string>>()
   const stores = new Map<string, { schema: string, path: string }>()
+  const enumNames = new Set<string>()
   function parseTypeName(t?: string): Type {
     if (!t) return 'Unknown'
     if (t === 'Int') return 'Int'
     if (t === 'Text') return 'Text'
     if (t === 'Bool') return 'Bool'
+    if (enumNames.has(t)) return `ADT:${t}`
     return 'Unknown'
   }
   function effectReturnType(eff: string, op: string): Type {
@@ -501,6 +503,7 @@ function checkTypesProject(files: Array<{ path: string, ast: any }>): { errors: 
       }
       if (d.kind === 'EnumDecl') {
         enumToVariants.set(d.name, (d.variants as any[]).map(v => ({ name: v.name })))
+        enumNames.add(d.name)
         for (const v of d.variants as Array<{ name: string, params: string[] }>) {
           const params = v.params.map(parseTypeName)
           ctorToEnum.set(v.name, { enumName: d.name, params })
