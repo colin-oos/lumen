@@ -9,6 +9,7 @@ This is a minimal scaffold to begin building the LUMEN language prototype in Typ
 - `packages/runner`  — Deterministic interpreter with effect hooks (stub)
 - `packages/spec`    — Spec runner and property test scaffolding (stub)
 - `packages/cli`     — CLI entry points (`lumen fmt`, `lumen run`, etc.)
+- `packages/lsp`     — Minimal LSP scaffolding (diagnostics + hover) and CLI `serve`
 - `examples/`        — Toy examples to validate end-to-end flow
 - `docs/`            — Design docs (Core IR, effects, etc.)
 
@@ -32,38 +33,21 @@ node packages/cli/dist/index.js fmt examples/hello --write
 ```
 
 ## Notes
-- Parser: `let`, `fn [raises ...]`, numbers, booleans, strings, binary ops, calls, imports, modules, qualified names, effect calls (`io.print`, `fs.read`, `fs.write`).
+- Parser: `let`, `fn [raises ...]`, numbers, booleans, strings, binary ops, calls, imports, modules, qualified names, effect calls (`io.print`, `fs.read`, `fs.write`), `match`, ADT constructors, handler-style actors.
 - Formatter: canonical one-line forms for supported nodes.
-- Runner: deterministic; env, closures, calls; effect hooks: `io.print`, `fs.read`, `fs.write` (gated by deny policy via `--deny` or `lumen.json`).
-- Checker: parse→format→parse round-trip, project-level effect propagation with call-chain diagnostics; flags `EffectCall`s; `--json` output; `--policy` with `deny`/`warn` and `--strict-warn`.
+- Runner: deterministic; env, closures, calls; effect hooks: `io.print`, `fs.read`, `fs.write` (gated by deny policy via `--deny` or `lumen.json`), `net.get`, `time.now` mocks enabled with `--mock-effects`.
+- Checker: parse→format→parse round-trip, project-level effect propagation with call-chain diagnostics; flags `EffectCall`s; `--json` output; `--policy` with `deny`/`warn` and `--strict-warn`; match typing and ADT return validation; actor handler exhaustiveness and reply type checks.
 
 ## Effects & Policy
-- Declare effects on functions with `raises`:
+See `docs/effects.md` and `examples/policy`.
 
-```lumen
-fn fetch(url) raises net = http.get(url)
-```
+## Actors
+Router and Supervisor examples in `examples/actors`. See `docs/actors.md`.
 
-- Built-in effect calls:
+## Schema & Query
+In-memory and SQLite-facade examples in `examples/newproj` and `examples/data/sqlite_query.lum`. See `docs/schema-query.md`.
 
-```lumen
-io.print("hello")
-fs.write("/tmp/file.txt", "data")
-let txt = fs.read("/tmp/file.txt")
-```
-
-- Policy file `lumen.json`:
-
-```json
-{
-  "policy": {
-    "deny": ["net"],
-    "warn": ["fs"]
-  }
-}
-```
-
-- CLI flags:
-  - `run --deny=io,net`
-  - `check --json`
-  - `check --policy path/to/lumen.json` and `--strict-warn`
+## Tooling
+- CLI: `docs/cli.md`
+- Serve protocol: use `lumen serve` and send newline-delimited JSON requests
+- LSP: `packages/lsp` provides diagnostics and hover helpers
