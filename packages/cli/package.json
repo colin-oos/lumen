@@ -12,7 +12,8 @@
     "@lumen/core-ir": "^0.1.0",
     "@lumen/parser": "^0.1.0",
     "@lumen/fmt": "^0.1.0",
-    "@lumen/runner": "^0.1.0"
+    "@lumen/runner": "^0.1.0",
+    "@lumen/lsp": "^0.1.0"
   },
   "devDependencies": {
     "typescript": "^5.5.0"

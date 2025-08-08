@@ -11,11 +11,13 @@ export function parseSqliteConfig(config: string): { path: string, table: string
   return { path: rest.slice(0, idx), table: rest.slice(idx + 1) }
 }
 
-export function loadSqlite(config: string): Array<Record<string, unknown>> {
+export function loadSqlite(config: string, where?: (row: Record<string, unknown>) => boolean, projection?: string[]): Array<Record<string, unknown>> {
   const parsed = parseSqliteConfig(config)
   if (!parsed) return []
-  // Deterministic mock per table name
-  if (parsed.table === 'users') return [{ id: 1, name: 'Ada' }, { id: 2, name: 'Linus' }]
-  if (parsed.table === 'items') return [{ id: 100, name: 'Widget' }]
-  return []
+  let rows: Array<Record<string, unknown>> = []
+  if (parsed.table === 'users') rows = [{ id: 1, name: 'Ada' }, { id: 2, name: 'Linus' }]
+  if (parsed.table === 'items') rows = [{ id: 100, name: 'Widget' }]
+  const filtered = where ? rows.filter(where) : rows
+  if (projection && projection.length > 0) return filtered.map(r => Object.fromEntries(projection.map(f => [f, (r as any)[f]])))
+  return filtered
 }
