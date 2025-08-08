@@ -7,7 +7,7 @@
   ],
   "scripts": {
     "build": "npm -ws run build",
-    "test": "npm -ws run test || true && ts-node ./tests/parser-roundtrip.ts && ts-node ./tests/adt-check.ts || true"
+    "test": "npm -ws run test || true && ts-node ./tests/parser-roundtrip.ts && ts-node ./tests/adt-check.ts && ts-node ./tests/query-exec.ts || true"
   },
   "devDependencies": {
     "typescript": "^5.5.0",

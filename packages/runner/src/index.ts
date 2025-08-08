@@ -13,6 +13,7 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string> }): RunRe
   const mailboxes = new Map<string, Array<unknown>>()
   const actors = new Map<string, { paramName?: string, body?: Expr, effects: Set<string>, state?: Map<string, unknown>, handlers?: Array<{ test: (msg: unknown)=>boolean, reply?: (msg: unknown)=>unknown, run: ()=>unknown }> }>()
   const effectStack: Array<Set<string> | null> = []
+  const stores = new Map<string, Array<any>>()
 
   function wrapMessage(m: unknown): { value: unknown, sink?: { done: boolean, value?: unknown } } {
     if (m && typeof m === 'object' && 'value' in (m as any)) return m as any
@@ -100,7 +101,38 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string> }): RunRe
             // no runtime binding needed for enum decls in MVP
             last = null
           } else if (d.kind === 'SchemaDecl' || d.kind === 'StoreDecl' || d.kind === 'QueryDecl') {
-            // schema/store/query are compile-time constructs in MVP runner
+            // schema is compile-time only (no op)
+            if (d.kind === 'StoreDecl') {
+              // If config is provided, attempt to load JSON array
+              if (d.config) {
+                const data = evalExpr({ kind: 'EffectCall', sid: 'eff:dbload', effect: 'db' as any, op: 'load', args: [{ kind: 'LitText', sid: 'lit', value: d.config } as any] } as any)
+                if (Array.isArray(data)) stores.set(d.name, data as any)
+                else stores.set(d.name, [])
+              } else stores.set(d.name, [])
+            }
+            if (d.kind === 'QueryDecl') {
+              const rows = stores.get(d.source) || []
+              const results: any[] = []
+              for (const row of rows) {
+                // Evaluate predicate in a scoped env with row fields
+                let pass = true
+                if (d.predicate) {
+                  const prev = new Map(env)
+                  env.clear()
+                  if (row && typeof row === 'object') for (const [k, v] of Object.entries(row)) env.set(k, v)
+                  try { pass = Boolean(evalExpr(d.predicate)) }
+                  finally { env.clear(); for (const [k,v] of prev) env.set(k,v) }
+                }
+                if (!pass) continue
+                if (d.projection && d.projection.length > 0) {
+                  const proj: any = {}
+                  for (const f of d.projection) proj[f] = (row as any)[f]
+                  results.push(proj)
+                } else results.push(row)
+              }
+              const key = currentModule ? `${currentModule}.${d.name}` : d.name
+              env.set(key, results)
+            }
             last = null
           } else if (d.kind === 'ActorDecl') {
             const key = currentModule ? `${currentModule}.${d.name}` : d.name
