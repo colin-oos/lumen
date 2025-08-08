@@ -242,8 +242,9 @@ function parseExprRD(src) {
                     return { kind: 'Spawn', sid: (0, core_ir_1.sid)('spawn'), actorName: args[0].name };
                 }
                 // ask as expression: ask actor, msg OR ask actor msg (optional comma)
-                if (name === 'ask' && args.length === 2) {
-                    return { kind: 'Ask', sid: (0, core_ir_1.sid)('ask'), actor: args[0], message: args[1] };
+                if (name === 'ask' && (args.length === 2 || args.length === 3)) {
+                    const timeout = args.length === 3 && args[2].kind === 'LitNum' ? args[2].value : undefined;
+                    return { kind: 'Ask', sid: (0, core_ir_1.sid)('ask'), actor: args[0], message: args[1], timeoutMs: timeout };
                 }
                 return { kind: 'Call', sid: (0, core_ir_1.sid)('call'), callee: { kind: 'Var', sid: (0, core_ir_1.sid)('var'), name }, args };
             }
@@ -421,6 +422,19 @@ function parse(source) {
                 m = ln.match(/^send\s+([^\s]+)\s+(.+)$/);
             if (m) {
                 decls.push({ kind: 'Send', sid: (0, core_ir_1.sid)('send'), actor: parseExprRD(m[1]), message: parseExprRD(m[2]) });
+                continue;
+            }
+        }
+        if (ln.startsWith('ask ')) {
+            // ask a, b[, timeout]  or ask a b[, timeout]
+            let m = ln.match(/^ask\s+([^,\s]+)\s*,\s*([^,\s]+)(?:\s*,\s*(\d+))?$/);
+            if (!m)
+                m = ln.match(/^ask\s+([^\s]+)\s+([^,\s]+)(?:\s*,\s*(\d+))?$/);
+            if (m) {
+                const actor = parseExprRD(m[1]);
+                const msg = parseExprRD(m[2]);
+                const timeout = m[3] ? Number(m[3]) : undefined;
+                decls.push({ kind: 'Ask', sid: (0, core_ir_1.sid)('ask'), actor, message: msg, timeoutMs: timeout });
                 continue;
             }
         }

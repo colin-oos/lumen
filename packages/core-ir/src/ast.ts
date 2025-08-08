@@ -26,7 +26,7 @@ export type Expr =
   | { kind: 'ActorDeclNew', sid: Sid, name: string, state: Array<{ name: string, type?: string, init: Expr }>, handlers: Array<{ pattern: Expr, guard?: Expr, replyType?: string, body: Expr }>, effects: EffectSet }
   | { kind: 'Spawn', sid: Sid, actorName: string }
   | { kind: 'Send', sid: Sid, actor: Expr, message: Expr }
-  | { kind: 'Ask', sid: Sid, actor: Expr, message: Expr }
+  | { kind: 'Ask', sid: Sid, actor: Expr, message: Expr, timeoutMs?: number }
   | { kind: 'Program', sid: Sid, decls: Expr[] }
 
 export type Effect =
@@ -91,7 +91,7 @@ function nodeSignature(e: Expr): string {
     case 'ActorDeclNew': return `ActorDeclNew:${e.name}:${e.state.map(s=>s.name).join('|')}:${e.handlers.length}`
     case 'Spawn': return `Spawn:${e.actorName}`
     case 'Send': return `Send:${(e.actor as any).sid ?? '?'}:${(e.message as any).sid ?? '?'}`
-    case 'Ask': return `Ask:${(e.actor as any).sid ?? '?'}:${(e.message as any).sid ?? '?'}`
+    case 'Ask': return `Ask:${(e.actor as any).sid ?? '?'}:${(e.message as any).sid ?? '?'}:${e.timeoutMs ?? ''}`
     case 'Program': return `Program:${e.decls.map(d => (d as any).sid ?? '?').join(',')}`
     default: return 'Unknown'
   }

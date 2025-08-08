@@ -167,8 +167,9 @@ function parseExprRD(src: string): Expr {
           return { kind: 'Spawn', sid: sid('spawn'), actorName: (args[0] as any).name } as any
         }
         // ask as expression: ask actor, msg OR ask actor msg (optional comma)
-        if (name === 'ask' && args.length === 2) {
-          return { kind: 'Ask', sid: sid('ask'), actor: args[0], message: args[1] } as any
+        if (name === 'ask' && (args.length === 2 || args.length === 3)) {
+          const timeout = args.length === 3 && args[2].kind === 'LitNum' ? (args[2] as any).value : undefined
+          return { kind: 'Ask', sid: sid('ask'), actor: args[0], message: args[1], timeoutMs: timeout } as any
         }
         return { kind: 'Call', sid: sid('call'), callee: { kind: 'Var', sid: sid('var'), name }, args }
       }
@@ -319,6 +320,18 @@ export function parse(source: string): Expr {
       let m = ln.match(/^send\s+([^,\s]+)\s*,\s*(.+)$/)
       if (!m) m = ln.match(/^send\s+([^\s]+)\s+(.+)$/)
       if (m) { decls.push({ kind: 'Send', sid: sid('send'), actor: parseExprRD(m[1]), message: parseExprRD(m[2]) } as any); continue }
+    }
+    if (ln.startsWith('ask ')) {
+      // ask a, b[, timeout]  or ask a b[, timeout]
+      let m = ln.match(/^ask\s+([^,\s]+)\s*,\s*([^,\s]+)(?:\s*,\s*(\d+))?$/)
+      if (!m) m = ln.match(/^ask\s+([^\s]+)\s+([^,\s]+)(?:\s*,\s*(\d+))?$/)
+      if (m) {
+        const actor = parseExprRD(m[1])
+        const msg = parseExprRD(m[2])
+        const timeout = m[3] ? Number(m[3]) : undefined
+        decls.push({ kind: 'Ask', sid: sid('ask'), actor, message: msg, timeoutMs: timeout } as any)
+        continue
+      }
     }
     if (ln.startsWith('match ')) {
       // match expr { pattern [if guard] -> expr; ... }

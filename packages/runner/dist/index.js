@@ -366,8 +366,15 @@ function run(ast, options) {
                 const mb = mailboxes.get(String(actorRef)) || [];
                 mailboxes.set(String(actorRef), mb);
                 mb.push({ value: message, sink });
-                processMailboxesUntil(() => sink.done);
-                return sink.value ?? null;
+                if (e.timeoutMs && e.timeoutMs > 0) {
+                    const start = Date.now();
+                    processMailboxesUntil(() => sink.done || (Date.now() - start) >= e.timeoutMs);
+                    return sink.done ? (sink.value ?? null) : `(timeout ${e.timeoutMs})`;
+                }
+                else {
+                    processMailboxesUntil(() => sink.done);
+                    return sink.value ?? null;
+                }
             }
             case 'Binary': {
                 const l = evalExpr(e.left);
