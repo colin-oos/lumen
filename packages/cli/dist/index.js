@@ -10,6 +10,7 @@ const parser_1 = require("@lumen/parser");
 const fmt_1 = require("@lumen/fmt");
 const core_ir_1 = require("@lumen/core-ir");
 const runner_1 = require("@lumen/runner");
+let DISABLE_CACHE = false;
 function usage() {
     console.log(`lumen <cmd> [args]
   cmds:
@@ -51,6 +52,7 @@ async function main() {
     }
     if (cmd === 'trace') {
         const entry = resolved;
+        DISABLE_CACHE = rest.includes('--no-cache');
         const ast = loadWithImports(entry);
         (0, core_ir_1.assignStableSids)(ast);
         const res = (0, runner_1.run)(ast);
@@ -60,6 +62,7 @@ async function main() {
     }
     if (cmd === 'run') {
         const entry = resolved;
+        DISABLE_CACHE = rest.includes('--no-cache');
         const ast = loadWithImports(entry);
         (0, core_ir_1.assignStableSids)(ast);
         // collect deny list from flag and policy
@@ -194,13 +197,20 @@ function hashTrace(trace) {
     }
     return `t:${h.toString(36)}`;
 }
-function hashFiles(files) {
+function hashFiles(files, policyPath) {
     let h = 2166136261 >>> 0;
     const sorted = [...files].sort();
     for (const f of sorted) {
         const s = f + '|' + require('fs').readFileSync(f, 'utf8');
         for (let i = 0; i < s.length; i++) {
             h ^= s.charCodeAt(i);
+            h = Math.imul(h, 16777619) >>> 0;
+        }
+    }
+    if (policyPath && fs_1.default.existsSync(policyPath)) {
+        const ps = policyPath + '|' + fs_1.default.readFileSync(policyPath, 'utf8');
+        for (let i = 0; i < ps.length; i++) {
+            h ^= ps.charCodeAt(i);
             h = Math.imul(h, 16777619) >>> 0;
         }
     }
@@ -484,10 +494,11 @@ function collectImportsTransitive(entry, visited = new Set()) {
 function loadWithImports(entry, visited = new Set()) {
     const files = Array.from(new Set([entry, ...collectImportsTransitive(entry)]));
     // simple content hash for merged program
-    const key = hashFiles(files);
+    const policyPath = findPolicyFile(entry);
+    const key = hashFiles(files, policyPath || undefined);
     const cacheDir = path_1.default.resolve(process.cwd(), '.lumen-cache');
     const cachePath = path_1.default.join(cacheDir, `${key}.json`);
-    if (fs_1.default.existsSync(cachePath)) {
+    if (!DISABLE_CACHE && fs_1.default.existsSync(cachePath)) {
         try {
             return JSON.parse(fs_1.default.readFileSync(cachePath, 'utf8'));
         }
@@ -505,9 +516,11 @@ function loadWithImports(entry, visited = new Set()) {
     }
     const merged = { kind: 'Program', sid: 'prog:merged', decls };
     try {
-        if (!fs_1.default.existsSync(cacheDir))
-            fs_1.default.mkdirSync(cacheDir, { recursive: true });
-        fs_1.default.writeFileSync(cachePath, JSON.stringify(merged), 'utf8');
+        if (!DISABLE_CACHE) {
+            if (!fs_1.default.existsSync(cacheDir))
+                fs_1.default.mkdirSync(cacheDir, { recursive: true });
+            fs_1.default.writeFileSync(cachePath, JSON.stringify(merged), 'utf8');
+        }
     }
     catch { }
     return merged;
