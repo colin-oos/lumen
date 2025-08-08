@@ -1,0 +1,104 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.call = exports.fnExpr = exports.letBind = exports.variable = exports.litBool = exports.litText = exports.litNum = void 0;
+exports.sid = sid;
+exports.program = program;
+exports.assignStableSids = assignStableSids;
+function sid(prefix = 'sid') {
+    // simple stable-ish SID generator stub (replace with crypto/random + stable mapping)
+    return `${prefix}:${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+}
+function program(decls) {
+    return { kind: 'Program', sid: sid('prog'), decls };
+}
+// Constructors (ergonomic helpers)
+const litNum = (n) => ({ kind: 'LitNum', sid: sid('lit'), value: n });
+exports.litNum = litNum;
+const litText = (t) => ({ kind: 'LitText', sid: sid('lit'), value: t });
+exports.litText = litText;
+const litBool = (b) => ({ kind: 'LitBool', sid: sid('lit'), value: b });
+exports.litBool = litBool;
+const variable = (name) => ({ kind: 'Var', sid: sid('var'), name });
+exports.variable = variable;
+const letBind = (name, expr) => ({ kind: 'Let', sid: sid('let'), name, expr });
+exports.letBind = letBind;
+const fnExpr = (name, params, body, effects = new Set()) => ({ kind: 'Fn', sid: sid('fn'), name, params, body, effects });
+exports.fnExpr = fnExpr;
+const call = (callee, args) => ({ kind: 'Call', sid: sid('call'), callee, args });
+exports.call = call;
+// Stable SID assignment
+function hashString(input) {
+    let h = 5381;
+    for (let i = 0; i < input.length; i++)
+        h = ((h << 5) + h) ^ input.charCodeAt(i);
+    return (h >>> 0).toString(36);
+}
+function nodeSignature(e) {
+    switch (e.kind) {
+        case 'LitNum': return `LitNum:${e.value}`;
+        case 'LitText': return `LitText:${e.value}`;
+        case 'LitBool': return `LitBool:${e.value}`;
+        case 'Var': return `Var:${e.name}`;
+        case 'Let': return `Let:${e.name}:${e.expr.sid ?? '?'}`;
+        case 'Fn': {
+            const eff = Array.from(e.effects.values()).sort().join('|');
+            return `Fn:${e.name ?? ''}(${e.params.join(',')}):${e.body.sid ?? '?'}:${eff}`;
+        }
+        case 'Call': return `Call:${e.callee.sid ?? '?'}(${e.args.map(a => a.sid ?? '?').join(',')})`;
+        case 'Binary': return `Binary:${e.op}:${e.left.sid ?? '?'}:${e.right.sid ?? '?'}`;
+        case 'EffectCall': return `EffectCall:${e.effect}:${e.op}(${e.args.map(a => a.sid ?? '?').join(',')})`;
+        case 'SchemaDecl': return `SchemaDecl:${e.name}:${Object.entries(e.fields).map(([k, v]) => `${k}:${v}`).join(',')}`;
+        case 'StoreDecl': return `StoreDecl:${e.name}:${e.schema}:${e.config ?? ''}`;
+        case 'QueryDecl': return `QueryDecl:${e.name}:${e.source}:${e.predicate ?? ''}`;
+        case 'ImportDecl': return `ImportDecl:${e.path}`;
+        case 'ModuleDecl': return `ModuleDecl:${e.name}`;
+        case 'Block': return `Block:${e.stmts.map(s => s.sid ?? '?').join(',')}`;
+        case 'Assign': return `Assign:${e.name}:${e.expr.sid ?? '?'}`;
+        case 'ActorDecl': return `ActorDecl:${e.name}:${e.param?.name ?? ''}:${e.body.sid ?? '?'}`;
+        case 'ActorDeclNew': return `ActorDeclNew:${e.name}:${e.state.map(s => s.name).join('|')}:${e.handlers.length}`;
+        case 'Spawn': return `Spawn:${e.actorName}`;
+        case 'Send': return `Send:${e.actor.sid ?? '?'}:${e.message.sid ?? '?'}`;
+        case 'Ask': return `Ask:${e.actor.sid ?? '?'}:${e.message.sid ?? '?'}`;
+        case 'Program': return `Program:${e.decls.map(d => d.sid ?? '?').join(',')}`;
+        default: return 'Unknown';
+    }
+}
+function assignStableSids(e) {
+    // Post-order traversal to ensure child sids exist first
+    switch (e.kind) {
+        case 'Program':
+            for (const d of e.decls)
+                assignStableSids(d);
+            break;
+        case 'Let':
+            assignStableSids(e.expr);
+            break;
+        case 'Fn':
+            assignStableSids(e.body);
+            break;
+        case 'Call':
+            assignStableSids(e.callee);
+            for (const a of e.args)
+                assignStableSids(a);
+            break;
+        case 'Binary':
+            assignStableSids(e.left);
+            assignStableSids(e.right);
+            break;
+        case 'EffectCall':
+            for (const a of e.args)
+                assignStableSids(a);
+            break;
+        case 'ActorDecl':
+            assignStableSids(e.body);
+            break;
+        case 'Send':
+            assignStableSids(e.actor);
+            assignStableSids(e.message);
+            break;
+        default: break;
+    }
+    const sig = nodeSignature(e);
+    const h = hashString(sig);
+    e.sid = `${e.kind.toLowerCase()}:${h}`;
+}

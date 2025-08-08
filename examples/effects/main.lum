@@ -1,0 +1,3 @@
+fn netFetch(url) raises net = fetch(url)
+fn doThing(url) = netFetch(url)
+let tmp_2 = doThing("https://example.com")

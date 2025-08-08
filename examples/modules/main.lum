@@ -1,0 +1,4 @@
+import "./lib.lum"
+fn higher(a, b, url) = lib.combine(a, b) + 1
+fn needsNet(url) = lib.netFetch(url)
+let tmp_3 = higher(2, 3, "x")

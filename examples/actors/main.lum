@@ -1,0 +1,8 @@
+// Minimal actor example
+
+actor Printer(msg: Text) raises io = io.print(msg)
+
+let c = spawn Printer
+send c "Hello from actor A"
+send c "Hello from actor B"
+

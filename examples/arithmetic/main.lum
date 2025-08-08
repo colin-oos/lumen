@@ -1,0 +1,4 @@
+let two = 2
+let three = 3
+fn add(a, b) = a + b * 2
+let tmp_3 = add(two, three)

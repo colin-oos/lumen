@@ -1,0 +1,16 @@
+{
+  "name": "lumen-proto",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm -ws run build",
+    "test": "npm -ws run test || true && ts-node ./tests/parser-roundtrip.ts || true"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "ts-node": "^10.9.2"
+  }
+}

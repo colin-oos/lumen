@@ -1,0 +1,3 @@
+let greeting = "Hello from LUMEN"
+fn main() = greeting
+let tmp_2 = main()
