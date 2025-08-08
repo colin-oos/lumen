@@ -596,6 +596,27 @@ function checkTypesProject(files) {
                 }
                 return 'Unknown';
             }
+            case 'RecordLit': {
+                for (const f of e.fields)
+                    checkExpr(f.expr, env, file);
+                return 'Unknown';
+            }
+            case 'TupleLit': {
+                for (const el of e.elements)
+                    checkExpr(el, env, file);
+                return 'Unknown';
+            }
+            case 'Match': {
+                const _t = checkExpr(e.scrutinee, env, file);
+                let branchT = 'Unknown';
+                for (const c of e.cases) {
+                    if (c.guard)
+                        checkExpr(c.guard, env, file);
+                    const bt = checkExpr(c.body, env, file);
+                    branchT = branchT === 'Unknown' ? bt : (bt === branchT ? bt : 'Unknown');
+                }
+                return branchT;
+            }
             case 'Let': {
                 const t = checkExpr(e.expr, env, file);
                 const declT = parseTypeName(e.type);

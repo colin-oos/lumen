@@ -59,28 +59,72 @@ function parseExprRD(src: string): Expr {
     if (lx.s.slice(lx['i'], lx['i'] + 5) === 'false') { lx['i'] += 5; return { kind: 'LitBool', sid: sid('lit'), value: false } }
     if (lx.peek() === '(') { lx.next(); const e = parseAdd(); lx.eatWs(); if (lx.peek() === ')') lx.next(); return e }
     if (lx.peek() === '{') {
-      // Block: { expr; expr; ... }
-      lx.next()
-      const stmts: Expr[] = []
-      while (!lx.eof() && lx.peek() !== '}') {
-        const start = lx['i']
-        // read until ';' or '}'
-        let depth = 0
-        let buf = ''
-        while (!lx.eof()) {
-          const ch = lx.peek()
-          if (ch === '{') depth++
-          if (ch === '}') { if (depth === 0) break; depth-- }
-          if (ch === ';' && depth === 0) { lx.next(); break }
-          buf += lx.next()
+      // Decide between RecordLit and Block by scanning ahead for ':' vs ';'
+      let j = lx['i'] + 1
+      let depth = 0
+      let sawColon = false
+      let sawSemicolon = false
+      while (j < lx.s.length) {
+        const ch = lx.s[j]
+        if (ch === '{') depth++
+        else if (ch === '}') { if (depth === 0) break; depth-- }
+        else if (depth === 0) {
+          if (ch === ':') { sawColon = true; break }
+          if (ch === ';') { sawSemicolon = true; break }
         }
-        const stmt = buf.trim()
-        if (stmt.length > 0) stmts.push(parseExprRD(stmt))
-        lx.eatWs()
+        j++
       }
-      if (lx.peek() === '}') lx.next()
-      return { kind: 'Block', sid: sid('block'), stmts }
+      if (sawColon && !sawSemicolon) {
+        // Parse as RecordLit: { key: expr, key2: expr }
+        lx.next()
+        const fields: Array<{ name: string, expr: Expr }> = []
+        lx.eatWs()
+        if (lx.peek() !== '}') {
+          while (true) {
+            lx.eatWs(); let key = ''
+            while (/[A-Za-z_]/.test(lx.peek())) key += lx.next()
+            lx.eatWs(); if (lx.peek() === ':') lx.next(); lx.eatWs()
+            const value = parseAdd(); fields.push({ name: key, expr: value })
+            lx.eatWs(); if (lx.peek() === ',') { lx.next(); lx.eatWs(); continue }
+            break
+          }
+        }
+        if (lx.peek() === '}') lx.next()
+        return { kind: 'RecordLit', sid: sid('rec'), fields }
+      } else {
+        // Block: { expr; expr; ... }
+        lx.next()
+        const stmts: Expr[] = []
+        while (!lx.eof() && lx.peek() !== '}') {
+          // read until ';' or '}'
+          let depth2 = 0
+          let buf = ''
+          while (!lx.eof()) {
+            const ch = lx.peek()
+            if (ch === '{') depth2++
+            if (ch === '}') { if (depth2 === 0) break; depth2-- }
+            if (ch === ';' && depth2 === 0) { lx.next(); break }
+            buf += lx.next()
+          }
+          const stmt = buf.trim()
+          if (stmt.length > 0) stmts.push(parseExprRD(stmt))
+          lx.eatWs()
+        }
+        if (lx.peek() === '}') lx.next()
+        return { kind: 'Block', sid: sid('block'), stmts }
+      }
     }
+    // tuple or record literal shorthand
+    if (lx.peek() === '[') {
+      // allow [a, b] as tuple (alt syntax)
+      lx.next(); const elements: Expr[] = []
+      lx.eatWs(); if (lx.peek() !== ']') {
+        while (true) { const el = parseAdd(); elements.push(el); lx.eatWs(); if (lx.peek() === ',') { lx.next(); lx.eatWs(); continue } break }
+      }
+      if (lx.peek() === ']') lx.next()
+      return { kind: 'TupleLit', sid: sid('tuple'), elements }
+    }
+    // note: record literal handled above in '{' case
     // identifier (possibly qualified with dots) or call
     let name = ''
     if (/[A-Za-z_]/.test(lx.peek())) {
@@ -275,6 +319,43 @@ export function parse(source: string): Expr {
       let m = ln.match(/^send\s+([^,\s]+)\s*,\s*(.+)$/)
       if (!m) m = ln.match(/^send\s+([^\s]+)\s+(.+)$/)
       if (m) { decls.push({ kind: 'Send', sid: sid('send'), actor: parseExprRD(m[1]), message: parseExprRD(m[2]) } as any); continue }
+    }
+    if (ln.startsWith('match ')) {
+      // match expr { pattern [if guard] -> expr; ... }
+      let mm = ln.match(/^match\s+(.+)\s*\{$/)
+      if (mm) {
+        const scr = parseExprRD(mm[1])
+        idx += 1
+        const cases: any[] = []
+        for (; idx < lines.length; idx++) {
+          const line = lines[idx]
+          if (line === '}') break
+          let cm = line.match(/^(.+?)\s+if\s+(.+?)\s*->\s*(.+)$/)
+          if (cm) { cases.push({ pattern: parseExprRD(cm[1]), guard: parseExprRD(cm[2]), body: parseExprRD(cm[3]) }); continue }
+          cm = line.match(/^(.+?)\s*->\s*(.+)$/)
+          if (cm) { cases.push({ pattern: parseExprRD(cm[1]), body: parseExprRD(cm[2]) }); continue }
+        }
+        decls.push({ kind: 'Match', sid: sid('match'), scrutinee: scr, cases } as any)
+        continue
+      }
+      mm = ln.match(/^match\s+(.+)$/)
+      if (mm) {
+        const scr = parseExprRD(mm[1])
+        if (lines[idx + 1] && lines[idx + 1].trim() === '{') {
+          idx += 2
+          const cases: any[] = []
+          for (; idx < lines.length; idx++) {
+            const line = lines[idx]
+            if (line === '}') break
+            let cm = line.match(/^(.+?)\s+if\s+(.+?)\s*->\s*(.+)$/)
+            if (cm) { cases.push({ pattern: parseExprRD(cm[1]), guard: parseExprRD(cm[2]), body: parseExprRD(cm[3]) }); continue }
+            cm = line.match(/^(.+?)\s*->\s*(.+)$/)
+            if (cm) { cases.push({ pattern: parseExprRD(cm[1]), body: parseExprRD(cm[2]) }); continue }
+          }
+          decls.push({ kind: 'Match', sid: sid('match'), scrutinee: scr, cases } as any)
+          continue
+        }
+      }
     }
     // Fallback: treat as bare expression declaration by synthesizing a let _N
     const name = `tmp_${decls.length}`

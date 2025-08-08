@@ -38,6 +38,12 @@ function formatOne(node) {
             return String(node.value);
         case 'LitBool':
             return String(node.value);
+        case 'RecordLit': {
+            const fields = node.fields.map((f) => `${f.name}: ${formatOne(f.expr)}`).join(', ');
+            return `{ ${fields} }`;
+        }
+        case 'TupleLit':
+            return `[${node.elements.map(formatOne).join(', ')}]`;
         case 'Var':
             return node.name;
         case 'Call':
@@ -75,6 +81,13 @@ function formatOne(node) {
         }
         case 'Block':
             return `{ ${node.stmts.map(s => `${formatOne(s)};`).join(' ')} }`;
+        case 'Match': {
+            const cases = node.cases.map((c) => {
+                const guard = c.guard ? ` if ${formatOne(c.guard)}` : '';
+                return `  ${formatOne(c.pattern)}${guard} -> ${formatOne(c.body)}`;
+            }).join('\n');
+            return `match ${formatOne(node.scrutinee)} {\n${cases}\n}`;
+        }
         default:
             return `/* ${node.kind} */`;
     }

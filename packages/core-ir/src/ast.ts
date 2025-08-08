@@ -12,6 +12,9 @@ export type Expr =
   | { kind: 'EffectCall', sid: Sid, effect: Effect, op: string, args: Expr[] }
   | { kind: 'Block', sid: Sid, stmts: Expr[] }
   | { kind: 'Assign', sid: Sid, name: string, expr: Expr }
+  | { kind: 'RecordLit', sid: Sid, fields: Array<{ name: string, expr: Expr }> }
+  | { kind: 'TupleLit', sid: Sid, elements: Expr[] }
+  | { kind: 'Match', sid: Sid, scrutinee: Expr, cases: Array<{ pattern: Expr, guard?: Expr, body: Expr }> }
   | { kind: 'SchemaDecl', sid: Sid, name: string, fields: Record<string,string> }
   | { kind: 'StoreDecl', sid: Sid, name: string, schema: string, config: string | null }
   | { kind: 'QueryDecl', sid: Sid, name: string, source: string, predicate?: string }
@@ -72,6 +75,9 @@ function nodeSignature(e: Expr): string {
     case 'Call': return `Call:${(e.callee as any).sid ?? '?'}(${e.args.map(a => (a as any).sid ?? '?').join(',')})`
     case 'Binary': return `Binary:${e.op}:${(e.left as any).sid ?? '?'}:${(e.right as any).sid ?? '?'}`
     case 'EffectCall': return `EffectCall:${e.effect}:${e.op}(${e.args.map(a => (a as any).sid ?? '?').join(',')})`
+    case 'RecordLit': return `RecordLit:{${e.fields.map(f => `${f.name}:${(f.expr as any).sid ?? '?'}`).join(',')}}`
+    case 'TupleLit': return `TupleLit:(${e.elements.map(a => (a as any).sid ?? '?').join(',')})`
+    case 'Match': return `Match:${(e.scrutinee as any).sid ?? '?'}:${e.cases.length}`
     case 'SchemaDecl': return `SchemaDecl:${e.name}:${Object.entries(e.fields).map(([k,v])=>`${k}:${v}`).join(',')}`
     case 'StoreDecl': return `StoreDecl:${e.name}:${e.schema}:${e.config ?? ''}`
     case 'QueryDecl': return `QueryDecl:${e.name}:${e.source}:${e.predicate ?? ''}`
@@ -102,6 +108,9 @@ export function assignStableSids(e: Expr): void {
     case 'Binary': assignStableSids(e.left); assignStableSids(e.right); break
     case 'Block': for (const s of e.stmts) assignStableSids(s); break
     case 'EffectCall': for (const a of e.args) assignStableSids(a); break
+    case 'RecordLit': for (const f of e.fields) assignStableSids(f.expr); break
+    case 'TupleLit': for (const a of e.elements) assignStableSids(a); break
+    case 'Match': assignStableSids(e.scrutinee); for (const c of e.cases as any[]) { if (c.pattern) assignStableSids(c.pattern); if (c.guard) assignStableSids(c.guard); if (c.body) assignStableSids(c.body) } break
     case 'Ctor': for (const a of e.args) assignStableSids(a); break
     case 'ActorDecl': assignStableSids(e.body); break
     case 'ActorDeclNew':

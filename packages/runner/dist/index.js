@@ -315,6 +315,63 @@ function run(ast, options) {
                 }
                 return null;
             }
+            case 'RecordLit': {
+                const obj = {};
+                for (const f of e.fields)
+                    obj[f.name] = evalExpr(f.expr);
+                return obj;
+            }
+            case 'TupleLit': {
+                return e.elements.map(x => evalExpr(x));
+            }
+            case 'Match': {
+                const value = evalExpr(e.scrutinee);
+                const isCtor = (v) => v && typeof v === 'object' && '$' in v && Array.isArray(v.values);
+                const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+                const hasEffectCall = (expr) => {
+                    if (!expr || typeof expr !== 'object')
+                        return false;
+                    if (expr.kind === 'EffectCall')
+                        return true;
+                    for (const k of Object.keys(expr)) {
+                        const v = expr[k];
+                        if (v && typeof v === 'object' && 'kind' in v) {
+                            if (hasEffectCall(v))
+                                return true;
+                        }
+                        if (Array.isArray(v)) {
+                            for (const it of v)
+                                if (it && typeof it === 'object' && 'kind' in it) {
+                                    if (hasEffectCall(it))
+                                        return true;
+                                }
+                        }
+                    }
+                    return false;
+                };
+                for (const c of e.cases) {
+                    const patVal = evalExpr(c.pattern);
+                    let matched = false;
+                    if (typeof patVal === 'string' && (patVal === '_' || patVal === '*'))
+                        matched = true;
+                    else if (isCtor(patVal) && isCtor(value)) {
+                        matched = patVal.$ === value.$ && equal(patVal.values, value.values);
+                    }
+                    else
+                        matched = equal(patVal, value);
+                    if (matched) {
+                        if (c.guard) {
+                            if (hasEffectCall(c.guard))
+                                continue;
+                            const g = evalExpr(c.guard);
+                            if (!g)
+                                continue;
+                        }
+                        return evalExpr(c.body);
+                    }
+                }
+                return null;
+            }
             case 'Block': {
                 let last = null;
                 for (const s of e.stmts)
