@@ -194,6 +194,18 @@ function hashTrace(trace) {
     }
     return `t:${h.toString(36)}`;
 }
+function hashFiles(files) {
+    let h = 2166136261 >>> 0;
+    const sorted = [...files].sort();
+    for (const f of sorted) {
+        const s = f + '|' + require('fs').readFileSync(f, 'utf8');
+        for (let i = 0; i < s.length; i++) {
+            h ^= s.charCodeAt(i);
+            h = Math.imul(h, 16777619) >>> 0;
+        }
+    }
+    return `p:${h.toString(36)}`;
+}
 // Helpers
 function structurallySimilar(a, b) {
     // Compare kinds and structure of Program decls ignoring sid
@@ -471,6 +483,16 @@ function collectImportsTransitive(entry, visited = new Set()) {
 }
 function loadWithImports(entry, visited = new Set()) {
     const files = Array.from(new Set([entry, ...collectImportsTransitive(entry)]));
+    // simple content hash for merged program
+    const key = hashFiles(files);
+    const cacheDir = path_1.default.resolve(process.cwd(), '.lumen-cache');
+    const cachePath = path_1.default.join(cacheDir, `${key}.json`);
+    if (fs_1.default.existsSync(cachePath)) {
+        try {
+            return JSON.parse(fs_1.default.readFileSync(cachePath, 'utf8'));
+        }
+        catch { }
+    }
     const decls = [];
     for (const f of files) {
         const src = fs_1.default.readFileSync(f, 'utf8');
@@ -481,7 +503,14 @@ function loadWithImports(entry, visited = new Set()) {
                     decls.push(d);
         }
     }
-    return { kind: 'Program', sid: 'prog:merged', decls };
+    const merged = { kind: 'Program', sid: 'prog:merged', decls };
+    try {
+        if (!fs_1.default.existsSync(cacheDir))
+            fs_1.default.mkdirSync(cacheDir, { recursive: true });
+        fs_1.default.writeFileSync(cachePath, JSON.stringify(merged), 'utf8');
+    }
+    catch { }
+    return merged;
 }
 function findPolicyFile(start) {
     const stat = fs_1.default.existsSync(start) ? fs_1.default.lstatSync(start) : null;

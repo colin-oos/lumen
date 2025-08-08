@@ -10,9 +10,10 @@ actor WorkerB {
   on Get() reply Int -> 2
 }
 actor Router {
-  state a: Int = 0
-  on Inc() -> io.print("route:inc")
-  on Add(1) -> io.print("route:add1")
+  state wa: Int = spawn WorkerA
+  state wb: Int = spawn WorkerB
+  on Inc() -> { send wa Inc(); }
+  on Add(1) -> { send wb Add(1); }
   on Get() reply Int -> 0
 }
 let r = spawn Router

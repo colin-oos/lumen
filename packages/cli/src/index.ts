@@ -175,6 +175,16 @@ function hashTrace(trace: Array<{ sid: string, note: string }>): string {
   return `t:${h.toString(36)}`
 }
 
+function hashFiles(files: string[]): string {
+  let h = 2166136261 >>> 0
+  const sorted = [...files].sort()
+  for (const f of sorted) {
+    const s = f + '|' + require('fs').readFileSync(f, 'utf8')
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0 }
+  }
+  return `p:${h.toString(36)}`
+}
+
 // Helpers
 function structurallySimilar(a: any, b: any): boolean {
   // Compare kinds and structure of Program decls ignoring sid
@@ -416,6 +426,13 @@ function collectImportsTransitive(entry: string, visited = new Set<string>()): s
 
 function loadWithImports(entry: string, visited = new Set<string>()): any {
   const files = Array.from(new Set([entry, ...collectImportsTransitive(entry)]))
+  // simple content hash for merged program
+  const key = hashFiles(files)
+  const cacheDir = path.resolve(process.cwd(), '.lumen-cache')
+  const cachePath = path.join(cacheDir, `${key}.json`)
+  if (fs.existsSync(cachePath)) {
+    try { return JSON.parse(fs.readFileSync(cachePath, 'utf8')) } catch {}
+  }
   const decls: any[] = []
   for (const f of files) {
     const src = fs.readFileSync(f, 'utf8')
@@ -424,7 +441,9 @@ function loadWithImports(entry: string, visited = new Set<string>()): any {
       for (const d of ast.decls) if (d.kind !== 'ImportDecl') decls.push(d)
     }
   }
-  return { kind: 'Program', sid: 'prog:merged', decls }
+  const merged = { kind: 'Program', sid: 'prog:merged', decls }
+  try { if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true }); fs.writeFileSync(cachePath, JSON.stringify(merged), 'utf8') } catch {}
+  return merged
 }
 
 function findPolicyFile(start: string): string | null {
