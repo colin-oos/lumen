@@ -1,0 +1,17 @@
+import "../libs/option_result.lum"
+
+let a = 10
+let b = 2
+let c = 0
+
+// Ok path
+match b {
+  0 -> option_result.Err("div by zero")
+  _ -> option_result.Ok(a / b)
+}
+
+// Err path
+match c {
+  0 -> option_result.Err("div by zero")
+  _ -> option_result.Ok(a / c)
+}
