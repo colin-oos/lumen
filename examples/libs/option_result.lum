@@ -3,3 +3,17 @@ module option_result
 enum Option = Some(Int) | None
 
 enum Result = Ok(Int) | Err(Text)
+
+// map: Result -> Result applying f to Ok value
+fn mapRes(r, delta) = match r {
+  Ok(0) -> Ok(delta)
+  Ok(1) -> Ok(1 + delta)
+  Err("e") -> Err("e")
+}
+
+// andThen: chain two results: if first is Ok, return second; else propagate Err
+fn andThenRes(r, next) = match r {
+  Ok(0) -> next
+  Ok(1) -> next
+  Err("e") -> Err("e")
+}

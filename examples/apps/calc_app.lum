@@ -5,13 +5,17 @@ let b = 2
 let c = 0
 
 // Ok path
-match b {
+let r1 = match b {
   0 -> option_result.Err("div by zero")
   _ -> option_result.Ok(a / b)
 }
+// apply mapRes to increment Ok value by 1
+let r2 = option_result.mapRes(r1, 1)
 
 // Err path
-match c {
+let r3 = match c {
   0 -> option_result.Err("div by zero")
   _ -> option_result.Ok(a / c)
 }
+// chain with andThenRes: since r3 is Err, it propagates
+let r4 = option_result.andThenRes(r3, option_result.Ok(42))
