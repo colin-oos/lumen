@@ -64,7 +64,7 @@ function nodeSignature(e) {
         case 'ActorDeclNew': return `ActorDeclNew:${e.name}:${e.state.map(s => s.name).join('|')}:${e.handlers.length}`;
         case 'Spawn': return `Spawn:${e.actorName}`;
         case 'Send': return `Send:${e.actor.sid ?? '?'}:${e.message.sid ?? '?'}`;
-        case 'Ask': return `Ask:${e.actor.sid ?? '?'}:${e.message.sid ?? '?'}`;
+        case 'Ask': return `Ask:${e.actor.sid ?? '?'}:${e.message.sid ?? '?'}:${e.timeoutMs ?? ''}`;
         case 'Program': return `Program:${e.decls.map(d => d.sid ?? '?').join(',')}`;
         default: return 'Unknown';
     }

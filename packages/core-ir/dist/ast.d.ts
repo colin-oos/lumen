@@ -157,6 +157,7 @@ export type Expr = {
     sid: Sid;
     actor: Expr;
     message: Expr;
+    timeoutMs?: number;
 } | {
     kind: 'Program';
     sid: Sid;
