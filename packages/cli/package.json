@@ -9,10 +9,10 @@
     "test": "echo \"(stub) no tests yet\" && exit 0"
   },
   "dependencies": {
-    "@lumen/core-ir": "^0.1.0",
-    "@lumen/parser": "^0.1.0",
-    "@lumen/fmt": "^0.1.0",
-    "@lumen/runner": "^0.1.0"
+    "@lumen/core-ir": "workspace:*",
+    "@lumen/parser": "workspace:*",
+    "@lumen/fmt": "workspace:*",
+    "@lumen/runner": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.5.0"
