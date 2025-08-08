@@ -175,16 +175,18 @@ async function main() {
                         if (ast.kind === 'Program') {
                             let mod = null;
                             for (const d of ast.decls) {
-                                if (d.kind === 'ModuleDecl')
+                                if (d.kind === 'ModuleDecl') {
                                     mod = d.name;
+                                    continue;
+                                }
                                 if (d.kind === 'EnumDecl')
-                                    symbols.push({ kind: 'enum', name: mod ? `${mod}.${d.name}` : d.name });
+                                    symbols.push({ kind: 'enum', module: mod || null, name: d.name });
                                 if (d.kind === 'Fn' && d.name)
-                                    symbols.push({ kind: 'function', name: mod ? `${mod}.${d.name}` : d.name });
+                                    symbols.push({ kind: 'function', module: mod || null, name: d.name, params: d.params, returnType: d.returnType || null, effects: Array.from(d.effects || []) });
                                 if (d.kind === 'StoreDecl')
-                                    symbols.push({ kind: 'store', name: mod ? `${mod}.${d.name}` : d.name, schema: d.schema });
+                                    symbols.push({ kind: 'store', module: mod || null, name: d.name, schema: d.schema });
                                 if (d.kind === 'QueryDecl')
-                                    symbols.push({ kind: 'query', name: mod ? `${mod}.${d.name}` : d.name, source: d.source });
+                                    symbols.push({ kind: 'query', module: mod || null, name: d.name, source: d.source, projection: d.projection || [] });
                             }
                         }
                         process.stdout.write(JSON.stringify({ ok: true, symbols }) + '\n');
