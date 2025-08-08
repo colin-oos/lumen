@@ -57,8 +57,33 @@ function run(ast, options) {
                             // guard check (must be pure, we just evaluate expression)
                             let guardOk = true;
                             const hAny = handler;
-                            if (hAny.guard)
-                                guardOk = Boolean(evalExpr(hAny.guard));
+                            if (hAny.guard) {
+                                const hasEffectCall = (expr) => {
+                                    if (!expr || typeof expr !== 'object')
+                                        return false;
+                                    if (expr.kind === 'EffectCall')
+                                        return true;
+                                    for (const k of Object.keys(expr)) {
+                                        const v = expr[k];
+                                        if (v && typeof v === 'object' && 'kind' in v) {
+                                            if (hasEffectCall(v))
+                                                return true;
+                                        }
+                                        if (Array.isArray(v)) {
+                                            for (const it of v)
+                                                if (it && typeof it === 'object' && 'kind' in it) {
+                                                    if (hasEffectCall(it))
+                                                        return true;
+                                                }
+                                        }
+                                    }
+                                    return false;
+                                };
+                                if (hasEffectCall(hAny.guard))
+                                    guardOk = false;
+                                else
+                                    guardOk = Boolean(evalExpr(hAny.guard));
+                            }
                             let result = null;
                             if (guardOk)
                                 result = handler.run();
@@ -97,6 +122,10 @@ function run(ast, options) {
                     }
                     else if (d.kind === 'ModuleDecl') {
                         currentModule = d.name;
+                        last = null;
+                    }
+                    else if (d.kind === 'EnumDecl') {
+                        // no runtime binding needed for enum decls in MVP
                         last = null;
                     }
                     else if (d.kind === 'ActorDecl') {
@@ -215,6 +244,10 @@ function run(ast, options) {
                     return callee(...args);
                 }
                 return `(not-callable ${String(callee)})`;
+            }
+            case 'Ctor': {
+                const values = e.args.map(evalExpr);
+                return { $: e.name, values };
             }
             case 'Spawn': {
                 const key = e.actorName;

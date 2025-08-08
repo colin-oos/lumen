@@ -17,6 +17,8 @@ export type Expr =
   | { kind: 'QueryDecl', sid: Sid, name: string, source: string, predicate?: string }
   | { kind: 'ImportDecl', sid: Sid, path: string }
   | { kind: 'ModuleDecl', sid: Sid, name: string }
+  | { kind: 'EnumDecl', sid: Sid, name: string, variants: Array<{ name: string, params: string[] }> }
+  | { kind: 'Ctor', sid: Sid, name: string, args: Expr[] }
   | { kind: 'ActorDecl', sid: Sid, name: string, param: { name: string, type?: string } | null, body: Expr, effects: EffectSet }
   | { kind: 'ActorDeclNew', sid: Sid, name: string, state: Array<{ name: string, type?: string, init: Expr }>, handlers: Array<{ pattern: Expr, guard?: Expr, replyType?: string, body: Expr }>, effects: EffectSet }
   | { kind: 'Spawn', sid: Sid, actorName: string }
@@ -75,6 +77,8 @@ function nodeSignature(e: Expr): string {
     case 'QueryDecl': return `QueryDecl:${e.name}:${e.source}:${e.predicate ?? ''}`
     case 'ImportDecl': return `ImportDecl:${e.path}`
     case 'ModuleDecl': return `ModuleDecl:${e.name}`
+    case 'EnumDecl': return `EnumDecl:${e.name}:${e.variants.map(v=>`${v.name}(${v.params.join(',')})`).join('|')}`
+    case 'Ctor': return `Ctor:${e.name}(${e.args.map(a => (a as any).sid ?? '?').join(',')})`
     case 'Block': return `Block:${e.stmts.map(s => (s as any).sid ?? '?').join(',')}`
     case 'Assign': return `Assign:${e.name}:${(e.expr as any).sid ?? '?'}`
     case 'ActorDecl': return `ActorDecl:${e.name}:${e.param?.name ?? ''}:${(e.body as any).sid ?? '?'}`
@@ -98,6 +102,7 @@ export function assignStableSids(e: Expr): void {
     case 'Binary': assignStableSids(e.left); assignStableSids(e.right); break
     case 'Block': for (const s of e.stmts) assignStableSids(s); break
     case 'EffectCall': for (const a of e.args) assignStableSids(a); break
+    case 'Ctor': for (const a of e.args) assignStableSids(a); break
     case 'ActorDecl': assignStableSids(e.body); break
     case 'ActorDeclNew':
       for (const s of e.state) assignStableSids(s.init as any)

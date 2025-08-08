@@ -1,13 +1,11 @@
-// Counter actor sketch with handler form
 actor Counter {
   state count: Int = 0
   on "inc" -> { count = count + 1; }
   on "get" reply Int -> count
+  on "noop" if true -> "ok"
 }
-
 let c = spawn Counter
 send c "inc"
 send c "inc"
 let value = ask c "get"
-io.print(value)
-
+let tmp_5 = io.print(value)

@@ -18,6 +18,10 @@ function formatOne(node) {
             const type = node.type ? `: ${node.type}` : '';
             return `let ${node.name}${type} = ${formatOne(node.expr)}`;
         }
+        case 'EnumDecl': {
+            const rhs = node.variants.map((v) => v.params && v.params.length > 0 ? `${v.name}(${v.params.join(', ')})` : v.name).join(' | ');
+            return `enum ${node.name} = ${rhs}`;
+        }
         case 'Assign':
             return `${node.name} = ${formatOne(node.expr)}`;
         case 'Fn': {
@@ -38,6 +42,8 @@ function formatOne(node) {
             return node.name;
         case 'Call':
             return `${formatOne(node.callee)}(${node.args.map(formatOne).join(', ')})`;
+        case 'Ctor':
+            return `${node.name}(${node.args.map(formatOne).join(', ')})`;
         case 'EffectCall':
             return `${node.effect}.${node.op}(${node.args.map(formatOne).join(', ')})`;
         case 'ActorDecl': {
@@ -50,7 +56,8 @@ function formatOne(node) {
         case 'ActorDeclNew': {
             const state = node.state.map((s) => `  state ${s.name}${s.type ? `: ${s.type}` : ''} = ${formatOne(s.init)}`).join('\n');
             const handlers = node.handlers.map((h) => {
-                const head = h.replyType ? `on ${formatOne(h.pattern)} reply ${h.replyType} ->` : `on ${formatOne(h.pattern)} ->`;
+                const guard = h.guard ? ` if ${formatOne(h.guard)}` : '';
+                const head = h.replyType ? `on ${formatOne(h.pattern)}${guard} reply ${h.replyType} ->` : `on ${formatOne(h.pattern)}${guard} ->`;
                 return `  ${head} ${formatOne(h.body)}`;
             }).join('\n');
             return `actor ${node.name} {\n${state}${state && handlers ? '\n' : ''}${handlers}\n}`;
