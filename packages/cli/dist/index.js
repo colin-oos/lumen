@@ -441,7 +441,7 @@ function collectImportsTransitive(entry, visited = new Set()) {
     if (ast.kind === 'Program') {
         for (const d of ast.decls) {
             if (d.kind === 'ImportDecl') {
-                const p = path_1.default.resolve(dir, d.path);
+                const p = resolveImportPath(entry, d.path);
                 imports.push(p);
                 imports.push(...collectImportsTransitive(p, visited));
             }
@@ -468,6 +468,23 @@ function findPolicyFile(start) {
     const base = stat && stat.isDirectory() ? start : path_1.default.dirname(start);
     const p = path_1.default.join(base, 'lumen.json');
     return fs_1.default.existsSync(p) ? p : null;
+}
+// Override import resolution to consult lumen.pkg.json deps if present
+function resolveImportPath(from, spec) {
+    const baseDir = fs_1.default.lstatSync(from).isDirectory() ? from : path_1.default.dirname(from);
+    if (spec.startsWith('.'))
+        return path_1.default.resolve(baseDir, spec);
+    const pkgPath = path_1.default.resolve(process.cwd(), 'lumen.pkg.json');
+    if (fs_1.default.existsSync(pkgPath)) {
+        try {
+            const pkg = JSON.parse(fs_1.default.readFileSync(pkgPath, 'utf8'));
+            const map = pkg?.deps || {};
+            if (spec in map)
+                return path_1.default.resolve(process.cwd(), map[spec]);
+        }
+        catch { }
+    }
+    return path_1.default.resolve(baseDir, spec);
 }
 function checkPolicyDetailed(files, policy) {
     const denies = (policy?.policy?.deny ?? []);

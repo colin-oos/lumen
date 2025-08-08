@@ -269,6 +269,10 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
           if (e.op === 'load') {
             try {
               const p = String(args[0])
+              if (p.startsWith('sqlite:')) {
+                // Placeholder deterministic mock for SQLite adapter
+                return [{ id: 1, name: 'Ada' }, { id: 2, name: 'Linus' }]
+              }
               const raw = require('fs').readFileSync(p, 'utf8')
               return JSON.parse(raw)
             } catch { return `(db.load error)` }
