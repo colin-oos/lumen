@@ -42,7 +42,8 @@ function nodeSignature(e) {
         case 'Let': return `Let:${e.name}:${e.expr.sid ?? '?'}`;
         case 'Fn': {
             const eff = Array.from(e.effects.values()).sort().join('|');
-            return `Fn:${e.name ?? ''}(${e.params.join(',')}):${e.body.sid ?? '?'}:${eff}`;
+            const paramsSig = e.params.map(p => `${p.name}:${p.type ?? ''}`).join('|');
+            return `Fn:${e.name ?? ''}(${paramsSig}):${e.body.sid ?? '?'}:${eff}`;
         }
         case 'Call': return `Call:${e.callee.sid ?? '?'}(${e.args.map(a => a.sid ?? '?').join(',')})`;
         case 'Binary': return `Binary:${e.op}:${e.left.sid ?? '?'}:${e.right.sid ?? '?'}`;
@@ -73,6 +74,9 @@ function assignStableSids(e) {
         case 'Let':
             assignStableSids(e.expr);
             break;
+        case 'Assign':
+            assignStableSids(e.expr);
+            break;
         case 'Fn':
             assignStableSids(e.body);
             break;
@@ -85,6 +89,10 @@ function assignStableSids(e) {
             assignStableSids(e.left);
             assignStableSids(e.right);
             break;
+        case 'Block':
+            for (const s of e.stmts)
+                assignStableSids(s);
+            break;
         case 'EffectCall':
             for (const a of e.args)
                 assignStableSids(a);
@@ -92,7 +100,23 @@ function assignStableSids(e) {
         case 'ActorDecl':
             assignStableSids(e.body);
             break;
+        case 'ActorDeclNew':
+            for (const s of e.state)
+                assignStableSids(s.init);
+            for (const h of e.handlers) {
+                if (h.pattern)
+                    assignStableSids(h.pattern);
+                if (h.guard)
+                    assignStableSids(h.guard);
+                if (h.body)
+                    assignStableSids(h.body);
+            }
+            break;
         case 'Send':
+            assignStableSids(e.actor);
+            assignStableSids(e.message);
+            break;
+        case 'Ask':
             assignStableSids(e.actor);
             assignStableSids(e.message);
             break;
