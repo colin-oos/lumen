@@ -5,7 +5,21 @@ import { parse } from '@lumen/parser'
 import { format } from '@lumen/fmt'
 import { assignStableSids } from '@lumen/core-ir'
 import { run } from '@lumen/runner'
-import { getDiagnostics as lspDiagnostics, getHover as lspHover } from '@lumen/lsp'
+let lspDiagnostics: any = null as any
+let lspHover: any = null as any
+try {
+  // prefer compiled lsp dist
+  const lsp = require('@lumen/lsp')
+  lspDiagnostics = lsp.getDiagnostics
+  lspHover = lsp.getHover
+} catch {
+  try {
+    // fallback to local build path
+    const lsp = require('../lsp/dist/index.js')
+    lspDiagnostics = lsp.getDiagnostics
+    lspHover = lsp.getHover
+  } catch {}
+}
 
 let DISABLE_CACHE = false
 
@@ -843,8 +857,10 @@ function checkTypesProject(files: Array<{ path: string, ast: any }>): { errors: 
           for (const p of proj) if (!(p in schema)) errors.push(`${f.path}: query ${d.name} selects unknown field ${p}`)
           // basic predicate variable usage: allow only field names and literals/operators
           if (d.predicate) {
-            const ok = validatePredicateUses(d.predicate, schema)
-            if (!ok) errors.push(`${f.path}: query ${d.name} where-clause references unknown fields`)
+            // Build env with field types and type-check predicate
+            const env = new Map<string, Type>()
+            for (const [k, v] of Object.entries(schema)) env.set(k, parseTypeName(v))
+            const _t = checkExpr(d.predicate, env, f.path)
           }
         }
       } else {
