@@ -1,0 +1,6 @@
+{
+  "policy": {
+    "deny": ["net"],
+    "warn": ["time"]
+  }
+}

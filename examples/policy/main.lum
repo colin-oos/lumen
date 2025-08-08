@@ -1,0 +1,4 @@
+fn netFetch(url) raises net = net.get(url)
+fn now() raises time = time.now()
+let a = netFetch("https://example.com")
+let b = now()
