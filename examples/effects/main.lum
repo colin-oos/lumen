@@ -1,6 +1,7 @@
 fn netFetch(url) raises net = net.get(url)
 fn doThing(url) = netFetch(url)
-let tmp_2 = doThing("https://example.com")
+let r = doThing("https://example.com")
+io.print(r)
 
 fn now() raises time = time.now()
 let t = now()

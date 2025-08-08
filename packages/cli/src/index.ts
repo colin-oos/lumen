@@ -52,6 +52,7 @@ async function main() {
       const parts = denyFlag.includes('=') ? denyFlag.split('=')[1] : rest[rest.indexOf('--deny') + 1]
       if (parts) denyList = parts.split(',').map(s => s.trim()).filter(Boolean)
     }
+    const mockEffects = rest.includes('--mock-effects')
     const policyPath = findPolicyFile(entry)
     if (policyPath && fs.existsSync(policyPath)) {
       const policy = JSON.parse(fs.readFileSync(policyPath, 'utf8'))
@@ -62,7 +63,10 @@ async function main() {
       ]))
     }
     const deniedEffects = new Set<string>(denyList)
-    const res = run(ast, deniedEffects.size > 0 ? { deniedEffects } : undefined)
+    const runOpts: any = {}
+    if (deniedEffects.size > 0) runOpts.deniedEffects = deniedEffects
+    if (mockEffects) runOpts.mockEffects = true
+    const res = run(ast, Object.keys(runOpts).length ? runOpts : undefined)
     console.log(JSON.stringify(res, null, 2))
     return
   }
