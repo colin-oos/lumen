@@ -1,0 +1,8 @@
+schema Item {
+  id: Int
+  name: Text
+}
+
+store items : Item = "sqlite:./examples/data/items.sqlite3:items"
+
+query names from items select name

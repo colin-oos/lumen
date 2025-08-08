@@ -110,8 +110,22 @@ async function main() {
         const info = hoverInfo(ast, symbol);
         if (asJson)
             console.log(JSON.stringify(info, null, 2));
-        else
-            console.log(info.kind ? `${info.kind}: ${info.name}` : 'not found');
+        else {
+            if (!info.kind)
+                console.log('not found');
+            else if (info.kind === 'function')
+                console.log(`function ${info.name}${info.module ? ' (' + info.module + ')' : ''} -> ${info.returnType ?? ''} effects: ${(info.effects || []).join(',')}`);
+            else if (info.kind === 'enum')
+                console.log(`enum ${info.name}${info.module ? ' (' + info.module + ')' : ''}`);
+            else if (info.kind === 'constructor')
+                console.log(`constructor ${info.name} of ${info.enum}`);
+            else if (info.kind === 'store')
+                console.log(`store ${info.name} : ${info.schema}`);
+            else if (info.kind === 'query')
+                console.log(`query ${info.name} from ${info.source}`);
+            else
+                console.log(`${info.kind}: ${info.name}`);
+        }
         return;
     }
     if (cmd === 'serve') {
