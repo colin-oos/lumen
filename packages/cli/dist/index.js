@@ -848,6 +848,21 @@ function checkTypesProject(files) {
                 }
             }
         }
+        // Additionally, validate that router handlers' reply annotations (if any) are consistent with body types (basic)
+        for (const d of f.ast.decls) {
+            if (d.kind === 'ActorDeclNew') {
+                for (const h of d.handlers) {
+                    if (h.replyType) {
+                        const envLocal = new Map();
+                        const bt = checkExpr(h.body, envLocal, f.path);
+                        const rt = parseTypeName(h.replyType);
+                        if (rt !== 'Unknown' && bt !== 'Unknown' && rt !== bt) {
+                            errors.push(`${f.path}: actor ${d.name} handler reply type ${h.replyType} mismatches body type ${bt}`);
+                        }
+                    }
+                }
+            }
+        }
     }
     function validatePredicateUses(expr, schema) {
         let ok = true;
