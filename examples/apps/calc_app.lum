@@ -1,18 +1,20 @@
 import "../libs/option_result.lum"
+
 let a = 10
 let b = 2
 let c = 0
-let r1 = match
-let tmp_5 = 0 - ""
-let tmp_6 = _ - ""
-let tmp_7 = ""
-let r2 = option_result.mapRes(r1, 1)
-let r3 = match
-let tmp_10 = 0 - ""
-let tmp_11 = _ - ""
-let tmp_12 = ""
-let r4 = option_result.andThenRes(r3, option_result.Ok(42))
-fn demo(x): Result = match
-let tmp_15 = 0 - ""
-let tmp_16 = _ - ""
-let tmp_17 = ""
+
+let r1 = match b {
+  0 -> option_result.Err("div by zero")
+  _ -> option_result.Ok(a / b)
+}
+
+let r3 = match c {
+  0 -> option_result.Err("div by zero")
+  _ -> option_result.Ok(a / c)
+}
+
+fn demo(x): Result = match x {
+  0 -> option_result.Err("div by zero")
+  _ -> option_result.Ok(x)
+}
