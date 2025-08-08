@@ -1,7 +1,8 @@
 # LUMEN Documentation
 
 - CLI: cli.md
-- Actors: actors.md
-- Schema & Query: schema-query.md
-- Effects & Policy: effects.md
+- Serve Protocol: serve.md
+- Actors: actors.md (examples: examples/actors)
+- Schema & Query: schema-query.md (examples: examples/newproj, examples/data)
+- Effects & Policy: effects.md (example: examples/policy)
 - Core IR: core-ir.md

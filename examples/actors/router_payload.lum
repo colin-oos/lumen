@@ -1,0 +1,21 @@
+enum Msg = Add(Int) | Get
+actor WorkerA {
+  on Add(1) -> io.print("A:add1")
+  on Get() reply Int -> 1
+}
+actor WorkerB {
+  on Add(2) -> io.print("B:add2")
+  on Get() reply Int -> 2
+}
+actor Router {
+  state wa: Int = spawn WorkerA
+  state wb: Int = spawn WorkerB
+  on Add(1) -> { send wa Add(1); }
+  on Add(2) -> { send wb Add(2); }
+  on Get() reply Int -> 0
+}
+let r = spawn Router
+send r Add(1)
+send r Add(2)
+let v = ask r Get()
+let tmp_8 = io.print(v)
