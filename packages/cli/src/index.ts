@@ -5,6 +5,7 @@ import { parse } from '@lumen/parser'
 import { format } from '@lumen/fmt'
 import { assignStableSids } from '@lumen/core-ir'
 import { run } from '@lumen/runner'
+import { getDiagnostics as lspDiagnostics, getHover as lspHover } from '@lumen/lsp'
 
 let DISABLE_CACHE = false
 
@@ -15,6 +16,7 @@ function usage() {
     run <file> [--deny e1,e2]      Parse (with imports) and run (runner)
     check <path> [--json] [--policy <file>] [--strict-warn]  Round-trip + effect check for file or directory
     init <dir>             Scaffold a new LUMEN project
+    serve                  Start simple LSP-like server on stdin/stdout (newline-delimited JSON)
 `)
 }
 
@@ -67,6 +69,39 @@ async function main() {
     const info = hoverInfo(ast, symbol)
     if (asJson) console.log(JSON.stringify(info, null, 2))
     else console.log(info.kind ? `${info.kind}: ${info.name}` : 'not found')
+    return
+  }
+  if (cmd === 'serve') {
+    // Simple newline-delimited JSON protocol
+    // Request: { action: 'hover'|'diagnostics', file?: string, source?: string, symbol?: string }
+    // Response: JSON per line
+    let buffer = ''
+    process.stdin.setEncoding('utf8')
+    process.stdin.on('data', chunk => {
+      buffer += chunk
+      let idx
+      while ((idx = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, idx).trim()
+        buffer = buffer.slice(idx + 1)
+        if (!line) continue
+        try {
+          const req = JSON.parse(line)
+          const src = req.source ?? (req.file ? fs.readFileSync(path.resolve(req.file), 'utf8') : '')
+          if (req.action === 'diagnostics') {
+            const diags = lspDiagnostics(src)
+            process.stdout.write(JSON.stringify({ ok: true, diagnostics: diags }) + '\n')
+          } else if (req.action === 'hover') {
+            const sym = String(req.symbol || '')
+            const info = lspHover(src, sym)
+            process.stdout.write(JSON.stringify({ ok: true, hover: info }) + '\n')
+          } else {
+            process.stdout.write(JSON.stringify({ ok: false, error: 'unknown action' }) + '\n')
+          }
+        } catch (e) {
+          process.stdout.write(JSON.stringify({ ok: false, error: String(e) }) + '\n')
+        }
+      }
+    })
     return
   }
   if (cmd === 'trace') {
