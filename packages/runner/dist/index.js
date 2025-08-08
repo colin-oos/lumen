@@ -321,6 +321,20 @@ function run(ast, options) {
                     console.log(...e.args.map(evalExpr));
                     return null;
                 }
+                if (e.effect === 'net') {
+                    const args = e.args.map(evalExpr);
+                    if (e.op === 'get') {
+                        if (options?.mockEffects)
+                            return `MOCK:GET ${String(args[0])}`;
+                        return `(net.get ${String(args[0])})`;
+                    }
+                }
+                if (e.effect === 'time') {
+                    if (e.op === 'now')
+                        return options?.mockEffects ? 0 : `(time.now)`;
+                    if (e.op === 'sleep')
+                        return null;
+                }
                 if (e.effect === 'db') {
                     const args = e.args.map(evalExpr);
                     if (e.op === 'load') {
