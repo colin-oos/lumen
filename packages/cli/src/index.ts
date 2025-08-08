@@ -129,7 +129,14 @@ async function main() {
             }
           } else if (req.action === 'hover') {
             const sym = String(req.symbol || '')
-            const info = lspHover ? lspHover(src, sym) : {}
+            let info: any = {}
+            if (req.file) {
+              const file = path.resolve(req.file)
+              const ast = loadWithImports(file)
+              info = hoverInfo(ast, sym)
+            } else {
+              info = lspHover ? lspHover(src, sym) : {}
+            }
             process.stdout.write(JSON.stringify({ ok: true, hover: info }) + '\n')
           } else if (req.action === 'symbols') {
             const file = req.file ? path.resolve(req.file) : null
