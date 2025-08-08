@@ -6,6 +6,8 @@ import { format } from '@lumen/fmt'
 import { assignStableSids } from '@lumen/core-ir'
 import { run } from '@lumen/runner'
 
+let DISABLE_CACHE = false
+
 function usage() {
   console.log(`lumen <cmd> [args]
   cmds:
@@ -43,6 +45,7 @@ async function main() {
   }
   if (cmd === 'trace') {
     const entry = resolved
+    DISABLE_CACHE = rest.includes('--no-cache')
     const ast = loadWithImports(entry)
     assignStableSids(ast)
     const res = run(ast)
@@ -52,6 +55,7 @@ async function main() {
   }
   if (cmd === 'run') {
     const entry = resolved
+    DISABLE_CACHE = rest.includes('--no-cache')
     const ast = loadWithImports(entry)
     assignStableSids(ast)
     // collect deny list from flag and policy
@@ -175,12 +179,16 @@ function hashTrace(trace: Array<{ sid: string, note: string }>): string {
   return `t:${h.toString(36)}`
 }
 
-function hashFiles(files: string[]): string {
+function hashFiles(files: string[], policyPath?: string): string {
   let h = 2166136261 >>> 0
   const sorted = [...files].sort()
   for (const f of sorted) {
     const s = f + '|' + require('fs').readFileSync(f, 'utf8')
     for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0 }
+  }
+  if (policyPath && fs.existsSync(policyPath)) {
+    const ps = policyPath + '|' + fs.readFileSync(policyPath, 'utf8')
+    for (let i = 0; i < ps.length; i++) { h ^= ps.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0 }
   }
   return `p:${h.toString(36)}`
 }
@@ -427,10 +435,11 @@ function collectImportsTransitive(entry: string, visited = new Set<string>()): s
 function loadWithImports(entry: string, visited = new Set<string>()): any {
   const files = Array.from(new Set([entry, ...collectImportsTransitive(entry)]))
   // simple content hash for merged program
-  const key = hashFiles(files)
+  const policyPath = findPolicyFile(entry)
+  const key = hashFiles(files, policyPath || undefined)
   const cacheDir = path.resolve(process.cwd(), '.lumen-cache')
   const cachePath = path.join(cacheDir, `${key}.json`)
-  if (fs.existsSync(cachePath)) {
+  if (!DISABLE_CACHE && fs.existsSync(cachePath)) {
     try { return JSON.parse(fs.readFileSync(cachePath, 'utf8')) } catch {}
   }
   const decls: any[] = []
@@ -442,7 +451,7 @@ function loadWithImports(entry: string, visited = new Set<string>()): any {
     }
   }
   const merged = { kind: 'Program', sid: 'prog:merged', decls }
-  try { if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true }); fs.writeFileSync(cachePath, JSON.stringify(merged), 'utf8') } catch {}
+  try { if (!DISABLE_CACHE) { if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true }); fs.writeFileSync(cachePath, JSON.stringify(merged), 'utf8') } } catch {}
   return merged
 }
 
