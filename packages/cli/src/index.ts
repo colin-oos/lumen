@@ -53,7 +53,9 @@ async function main() {
       if (parts) denyList = parts.split(',').map(s => s.trim()).filter(Boolean)
     }
     const mockEffects = rest.includes('--mock-effects')
-    const policyPath = findPolicyFile(entry)
+    const policyPathFlagIdx = rest.indexOf('--policy')
+    const policyPath = policyPathFlagIdx >= 0 ? path.resolve(rest[policyPathFlagIdx + 1]) : findPolicyFile(entry)
+    const strictWarn = rest.includes('--strict-warn')
     if (policyPath && fs.existsSync(policyPath)) {
       const policy = JSON.parse(fs.readFileSync(policyPath, 'utf8'))
       const fromPolicy: string[] = (policy?.policy?.deny ?? [])
@@ -67,7 +69,12 @@ async function main() {
     if (deniedEffects.size > 0) runOpts.deniedEffects = deniedEffects
     if (mockEffects) runOpts.mockEffects = true
     const res = run(ast, Object.keys(runOpts).length ? runOpts : undefined)
-    console.log(JSON.stringify(res, null, 2))
+    const policy = policyPath && fs.existsSync(policyPath) ? JSON.parse(fs.readFileSync(policyPath, 'utf8')) : null
+    const policyReport = policy ? checkPolicyDetailed([{ path: entry, ast }], policy) : { errors: [], warnings: [] as string[] }
+    const ok = policyReport.errors.length === 0 && (!strictWarn || policyReport.warnings.length === 0)
+    const out = { ok, value: res.value, trace: res.trace, policy: policyReport, deniedEffects: Array.from(deniedEffects) }
+    console.log(JSON.stringify(out, null, 2))
+    if (!ok) process.exit(2)
     return
   }
   if (cmd === 'check') {
