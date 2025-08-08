@@ -41,6 +41,15 @@ async function main() {
     })
     return
   }
+  if (cmd === 'trace') {
+    const entry = resolved
+    const ast = loadWithImports(entry)
+    assignStableSids(ast)
+    const res = run(ast)
+    const hash = hashTrace(res.trace)
+    console.log(JSON.stringify({ hash, trace: res.trace }, null, 2))
+    return
+  }
   if (cmd === 'run') {
     const entry = resolved
     const ast = loadWithImports(entry)
@@ -153,6 +162,18 @@ async function main() {
 }
 
 main().catch(e => { console.error(e); process.exit(1) })
+
+function hashTrace(trace: Array<{ sid: string, note: string }>): string {
+  let h = 2166136261 >>> 0
+  for (const ev of trace) {
+    const s = `${ev.sid}:${ev.note}`
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i)
+      h = Math.imul(h, 16777619) >>> 0
+    }
+  }
+  return `t:${h.toString(36)}`
+}
 
 // Helpers
 function structurallySimilar(a: any, b: any): boolean {

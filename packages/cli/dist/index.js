@@ -49,6 +49,15 @@ async function main() {
         });
         return;
     }
+    if (cmd === 'trace') {
+        const entry = resolved;
+        const ast = loadWithImports(entry);
+        (0, core_ir_1.assignStableSids)(ast);
+        const res = (0, runner_1.run)(ast);
+        const hash = hashTrace(res.trace);
+        console.log(JSON.stringify({ hash, trace: res.trace }, null, 2));
+        return;
+    }
     if (cmd === 'run') {
         const entry = resolved;
         const ast = loadWithImports(entry);
@@ -174,6 +183,17 @@ async function main() {
     usage();
 }
 main().catch(e => { console.error(e); process.exit(1); });
+function hashTrace(trace) {
+    let h = 2166136261 >>> 0;
+    for (const ev of trace) {
+        const s = `${ev.sid}:${ev.note}`;
+        for (let i = 0; i < s.length; i++) {
+            h ^= s.charCodeAt(i);
+            h = Math.imul(h, 16777619) >>> 0;
+        }
+    }
+    return `t:${h.toString(36)}`;
+}
 // Helpers
 function structurallySimilar(a, b) {
     // Compare kinds and structure of Program decls ignoring sid
