@@ -48,6 +48,52 @@ function parseExprRD(src) {
     const builtinEffects = new Set(['io', 'fs', 'net', 'db', 'time', 'nondet', 'gpu', 'unchecked']);
     function parsePrimary() {
         lx.eatWs();
+        // expression-level match: match <expr> { pat -> expr; ... }
+        if (lx.s.slice(lx['i'], lx['i'] + 5) === 'match' && /\b/.test(lx.s[lx['i'] + 5] || ' ')) {
+            lx['i'] += 5;
+            lx.eatWs();
+            const scr = parseAdd();
+            lx.eatWs();
+            if (lx.peek() === '{') {
+                lx.next();
+                const cases = [];
+                while (!lx.eof() && lx.peek() !== '}') {
+                    // read until ';' or '}'
+                    let depth = 0;
+                    let buf = '';
+                    while (!lx.eof()) {
+                        const ch = lx.peek();
+                        if (ch === '{')
+                            depth++;
+                        if (ch === '}') {
+                            if (depth === 0)
+                                break;
+                            depth--;
+                        }
+                        if (ch === ';' && depth === 0) {
+                            lx.next();
+                            break;
+                        }
+                        buf += lx.next();
+                    }
+                    const stmt = buf.trim();
+                    if (stmt.length > 0) {
+                        let cm = stmt.match(/^(.+?)\s+if\s+(.+?)\s*->\s*(.+)$/);
+                        if (cm)
+                            cases.push({ pattern: parseExprRD(cm[1]), guard: parseExprRD(cm[2]), body: parseExprRD(cm[3]) });
+                        else {
+                            cm = stmt.match(/^(.+?)\s*->\s*(.+)$/);
+                            if (cm)
+                                cases.push({ pattern: parseExprRD(cm[1]), body: parseExprRD(cm[2]) });
+                        }
+                    }
+                    lx.eatWs();
+                }
+                if (lx.peek() === '}')
+                    lx.next();
+                return { kind: 'Match', sid: (0, core_ir_1.sid)('match'), scrutinee: scr, cases };
+            }
+        }
         if (lx.peek() === '"') {
             lx.next();
             let v = '';
