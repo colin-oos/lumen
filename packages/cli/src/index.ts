@@ -43,6 +43,32 @@ async function main() {
     })
     return
   }
+  if (cmd === 'cache') {
+    const action = (rest[0] || '').toLowerCase()
+    const cacheDir = path.resolve(process.cwd(), '.lumen-cache')
+    if (action === 'clear') {
+      try {
+        if (fs.existsSync(cacheDir)) {
+          for (const f of fs.readdirSync(cacheDir)) fs.unlinkSync(path.join(cacheDir, f))
+          console.log('cache cleared')
+        } else console.log('no cache')
+      } catch (e) { console.error(String(e)); process.exit(1) }
+      return
+    }
+    console.log('usage: lumen cache clear')
+    return
+  }
+  if (cmd === 'hover') {
+    const file = resolved
+    const symbol = rest[0]
+    const asJson = rest.includes('--json')
+    if (!symbol) { console.error('usage: lumen hover <file> <symbol> [--json]'); process.exit(1) }
+    const ast = loadWithImports(file)
+    const info = hoverInfo(ast, symbol)
+    if (asJson) console.log(JSON.stringify(info, null, 2))
+    else console.log(info.kind ? `${info.kind}: ${info.name}` : 'not found')
+    return
+  }
   if (cmd === 'trace') {
     const entry = resolved
     DISABLE_CACHE = rest.includes('--no-cache')
@@ -166,6 +192,35 @@ async function main() {
 }
 
 main().catch(e => { console.error(e); process.exit(1) })
+
+function hoverInfo(ast: any, symbol: string): any {
+  const lastSeg = symbol.includes('.') ? symbol.split('.').pop() as string : symbol
+  const result: any = {}
+  if (ast.kind !== 'Program') return result
+  // collect enums and variants
+  const enums: Array<{ name: string, module?: string, variants: Array<{ name: string, params: string[] }> }> = []
+  let currentModule: string | null = null
+  for (const d of ast.decls) {
+    if (d.kind === 'ModuleDecl') currentModule = d.name
+    if (d.kind === 'EnumDecl') enums.push({ name: d.name, module: currentModule || undefined, variants: d.variants })
+  }
+  for (const en of enums) {
+    if (en.name === symbol || en.name === lastSeg) return { kind: 'enum', name: en.name, module: en.module, variants: en.variants }
+    for (const v of en.variants) if (v.name === symbol || v.name === lastSeg) return { kind: 'constructor', name: v.name, enum: en.name, params: v.params }
+  }
+  // collect functions with types/effects
+  const fns: Array<{ name: string, module?: string, params: Array<{ name: string, type?: string }>, returnType?: string, effects: Set<string> }> = []
+  currentModule = null
+  for (const d of ast.decls) {
+    if (d.kind === 'ModuleDecl') currentModule = d.name
+    if (d.kind === 'Fn' && d.name) fns.push({ name: d.name, module: currentModule || undefined, params: d.params, returnType: d.returnType, effects: d.effects })
+  }
+  for (const fn of fns) {
+    const full = fn.module ? `${fn.module}.${fn.name}` : fn.name
+    if (fn.name === symbol || full === symbol) return { kind: 'function', name: full, params: fn.params, returnType: fn.returnType, effects: Array.from(fn.effects) }
+  }
+  return result
+}
 
 function hashTrace(trace: Array<{ sid: string, note: string }>): string {
   let h = 2166136261 >>> 0
