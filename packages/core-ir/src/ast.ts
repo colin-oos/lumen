@@ -17,7 +17,7 @@ export type Expr =
   | { kind: 'Match', sid: Sid, scrutinee: Expr, cases: Array<{ pattern: Expr, guard?: Expr, body: Expr }> }
   | { kind: 'SchemaDecl', sid: Sid, name: string, fields: Record<string,string> }
   | { kind: 'StoreDecl', sid: Sid, name: string, schema: string, config: string | null }
-  | { kind: 'QueryDecl', sid: Sid, name: string, source: string, predicate?: string }
+  | { kind: 'QueryDecl', sid: Sid, name: string, source: string, predicate?: Expr, projection?: string[] }
   | { kind: 'ImportDecl', sid: Sid, path: string }
   | { kind: 'ModuleDecl', sid: Sid, name: string }
   | { kind: 'EnumDecl', sid: Sid, name: string, variants: Array<{ name: string, params: string[] }> }
@@ -80,7 +80,7 @@ function nodeSignature(e: Expr): string {
     case 'Match': return `Match:${(e.scrutinee as any).sid ?? '?'}:${e.cases.length}`
     case 'SchemaDecl': return `SchemaDecl:${e.name}:${Object.entries(e.fields).map(([k,v])=>`${k}:${v}`).join(',')}`
     case 'StoreDecl': return `StoreDecl:${e.name}:${e.schema}:${e.config ?? ''}`
-    case 'QueryDecl': return `QueryDecl:${e.name}:${e.source}:${e.predicate ?? ''}`
+    case 'QueryDecl': return `QueryDecl:${e.name}:${e.source}:${(e.predicate as any)?.sid ?? ''}:${(e.projection || []).join(',')}`
     case 'ImportDecl': return `ImportDecl:${e.path}`
     case 'ModuleDecl': return `ModuleDecl:${e.name}`
     case 'EnumDecl': return `EnumDecl:${e.name}:${e.variants.map(v=>`${v.name}(${v.params.join(',')})`).join('|')}`
@@ -111,6 +111,9 @@ export function assignStableSids(e: Expr): void {
     case 'RecordLit': for (const f of e.fields) assignStableSids(f.expr); break
     case 'TupleLit': for (const a of e.elements) assignStableSids(a); break
     case 'Match': assignStableSids(e.scrutinee); for (const c of e.cases as any[]) { if (c.pattern) assignStableSids(c.pattern); if (c.guard) assignStableSids(c.guard); if (c.body) assignStableSids(c.body) } break
+    case 'SchemaDecl': break
+    case 'StoreDecl': break
+    case 'QueryDecl': if (e.predicate) assignStableSids(e.predicate); break
     case 'Ctor': for (const a of e.args) assignStableSids(a); break
     case 'ActorDecl': assignStableSids(e.body); break
     case 'ActorDeclNew':

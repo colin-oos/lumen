@@ -128,6 +128,10 @@ function run(ast, options) {
                         // no runtime binding needed for enum decls in MVP
                         last = null;
                     }
+                    else if (d.kind === 'SchemaDecl' || d.kind === 'StoreDecl' || d.kind === 'QueryDecl') {
+                        // schema/store/query are compile-time constructs in MVP runner
+                        last = null;
+                    }
                     else if (d.kind === 'ActorDecl') {
                         const key = currentModule ? `${currentModule}.${d.name}` : d.name;
                         actors.set(key, { paramName: d.param?.name, body: d.body, effects: d.effects });
@@ -268,6 +272,19 @@ function run(ast, options) {
                     // eslint-disable-next-line no-console
                     console.log(...e.args.map(evalExpr));
                     return null;
+                }
+                if (e.effect === 'db') {
+                    const args = e.args.map(evalExpr);
+                    if (e.op === 'load') {
+                        try {
+                            const p = String(args[0]);
+                            const raw = require('fs').readFileSync(p, 'utf8');
+                            return JSON.parse(raw);
+                        }
+                        catch {
+                            return `(db.load error)`;
+                        }
+                    }
                 }
                 if (e.effect === 'fs') {
                     const args = e.args.map(evalExpr);

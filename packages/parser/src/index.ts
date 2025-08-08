@@ -357,6 +357,46 @@ export function parse(source: string): Expr {
         }
       }
     }
+    if (ln.startsWith('schema ')) {
+      // schema Name { f: Type, ... }
+      const m = ln.match(/^schema\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{$/)
+      if (m) {
+        const name = m[1]
+        idx += 1
+        const fields: Record<string, string> = {}
+        for (; idx < lines.length; idx++) {
+          const line = lines[idx]
+          if (line === '}') break
+          const fm = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*,?$/)
+          if (fm) fields[fm[1]] = fm[2]
+        }
+        decls.push({ kind: 'SchemaDecl', sid: sid('schema'), name, fields } as any)
+        continue
+      }
+    }
+    if (ln.startsWith('source ') || ln.startsWith('store ')) {
+      // store Name : Schema = "config"
+      const m = ln.match(/^(?:source|store)\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:=\s*"([^"]*)")?$/)
+      if (m) {
+        decls.push({ kind: 'StoreDecl', sid: sid('store'), name: m[1], schema: m[2], config: m[3] ?? null } as any)
+        continue
+      }
+    }
+    if (ln.startsWith('query ')) {
+      // query Name from Store where <expr> select a,b
+      let m = ln.match(/^query\s+([A-Za-z_][A-Za-z0-9_]*)\s+from\s+([A-Za-z_][A-Za-z0-9_]*)\s+where\s+(.+)\s+select\s+(.+)$/)
+      if (!m) m = ln.match(/^query\s+([A-Za-z_][A-Za-z0-9_]*)\s+from\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+select\s+(.+))?$/)
+      if (m) {
+        const name = m[1]
+        const source = m[2]
+        const where = m[3] && m[4] ? m[3] : (m[3] && !m[4] ? undefined : undefined)
+        const select = m[4] || (m[3] && !m[4] ? m[3] : undefined)
+        const predicate = where ? parseExprRD(where) : undefined
+        const projection = select ? select.split(',').map(s => s.trim()).filter(Boolean) : undefined
+        decls.push({ kind: 'QueryDecl', sid: sid('query'), name, source, predicate, projection } as any)
+        continue
+      }
+    }
     // Fallback: treat as bare expression declaration by synthesizing a let _N
     const name = `tmp_${decls.length}`
     decls.push({ kind: 'Let', sid: sid('let'), name, expr: parseExprRD(ln) })

@@ -53,7 +53,7 @@ function nodeSignature(e) {
         case 'Match': return `Match:${e.scrutinee.sid ?? '?'}:${e.cases.length}`;
         case 'SchemaDecl': return `SchemaDecl:${e.name}:${Object.entries(e.fields).map(([k, v]) => `${k}:${v}`).join(',')}`;
         case 'StoreDecl': return `StoreDecl:${e.name}:${e.schema}:${e.config ?? ''}`;
-        case 'QueryDecl': return `QueryDecl:${e.name}:${e.source}:${e.predicate ?? ''}`;
+        case 'QueryDecl': return `QueryDecl:${e.name}:${e.source}:${e.predicate?.sid ?? ''}:${(e.projection || []).join(',')}`;
         case 'ImportDecl': return `ImportDecl:${e.path}`;
         case 'ModuleDecl': return `ModuleDecl:${e.name}`;
         case 'EnumDecl': return `EnumDecl:${e.name}:${e.variants.map(v => `${v.name}(${v.params.join(',')})`).join('|')}`;
@@ -120,6 +120,12 @@ function assignStableSids(e) {
                 if (c.body)
                     assignStableSids(c.body);
             }
+            break;
+        case 'SchemaDecl': break;
+        case 'StoreDecl': break;
+        case 'QueryDecl':
+            if (e.predicate)
+                assignStableSids(e.predicate);
             break;
         case 'Ctor':
             for (const a of e.args)

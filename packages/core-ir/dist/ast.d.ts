@@ -94,7 +94,8 @@ export type Expr = {
     sid: Sid;
     name: string;
     source: string;
-    predicate?: string;
+    predicate?: Expr;
+    projection?: string[];
 } | {
     kind: 'ImportDecl';
     sid: Sid;
