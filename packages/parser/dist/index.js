@@ -70,7 +70,7 @@ function parseExprRD(src) {
                                 break;
                             depth--;
                         }
-                        if (ch === ';' && depth === 0) {
+                        if ((ch === ';' || ch === '\n') && depth === 0) {
                             lx.next();
                             break;
                         }
@@ -415,7 +415,16 @@ function parse(source) {
             // let name[: Type]? = expr
             const m = ln.match(/^let\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*:\s*([A-Za-z_][A-Za-z0-9_]*))?\s*=\s*(.+)$/);
             if (m) {
-                decls.push({ kind: 'Let', sid: (0, core_ir_1.sid)('let'), name: m[1], type: m[2] || undefined, expr: parseExprRD(m[3]) });
+                let rhs = m[3];
+                if (/^match\b/.test(rhs) && (rhs.split('{').length - 1) > (rhs.split('}').length - 1)) {
+                    let depth = (rhs.match(/\{/g) || []).length - (rhs.match(/\}/g) || []).length;
+                    while (depth > 0 && idx + 1 < lines.length) {
+                        idx++;
+                        rhs += '\n' + lines[idx];
+                        depth += (lines[idx].match(/\{/g) || []).length - (lines[idx].match(/\}/g) || []).length;
+                    }
+                }
+                decls.push({ kind: 'Let', sid: (0, core_ir_1.sid)('let'), name: m[1], type: m[2] || undefined, expr: parseExprRD(rhs) });
                 continue;
             }
         }
@@ -428,7 +437,16 @@ function parse(source) {
                     return { name: pm?.[1] || p, type: pm?.[2] };
                 });
                 const returnType = m[3] || undefined;
-                const body = parseExprRD(m[5]);
+                let bodySrc = m[5];
+                if (/^match\b/.test(bodySrc) && (bodySrc.split('{').length - 1) > (bodySrc.split('}').length - 1)) {
+                    let depth = (bodySrc.match(/\{/g) || []).length - (bodySrc.match(/\}/g) || []).length;
+                    while (depth > 0 && idx + 1 < lines.length) {
+                        idx++;
+                        bodySrc += '\n' + lines[idx];
+                        depth += (lines[idx].match(/\{/g) || []).length - (lines[idx].match(/\}/g) || []).length;
+                    }
+                }
+                const body = parseExprRD(bodySrc);
                 const effects = new Set();
                 const raises = (m[4] ?? '').trim();
                 if (raises) {
