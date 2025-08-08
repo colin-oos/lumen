@@ -1,0 +1,8 @@
+schema User {
+  id: Int
+  name: Text
+}
+
+store users : User = "sqlite:./examples/data/users.sqlite3:users"
+
+query all from users select id, name

@@ -384,7 +384,7 @@ function collectImportsTransitive(entry: string, visited = new Set<string>()): s
   if (ast.kind === 'Program') {
     for (const d of ast.decls) {
       if (d.kind === 'ImportDecl') {
-        const p = path.resolve(dir, d.path)
+        const p = resolveImportPath(entry, d.path)
         imports.push(p)
         imports.push(...collectImportsTransitive(p, visited))
       }
@@ -411,6 +411,20 @@ function findPolicyFile(start: string): string | null {
   const base = stat && stat.isDirectory() ? start : path.dirname(start)
   const p = path.join(base, 'lumen.json')
   return fs.existsSync(p) ? p : null
+}
+// Override import resolution to consult lumen.pkg.json deps if present
+function resolveImportPath(from: string, spec: string): string {
+  const baseDir = fs.lstatSync(from).isDirectory() ? from : path.dirname(from)
+  if (spec.startsWith('.')) return path.resolve(baseDir, spec)
+  const pkgPath = path.resolve(process.cwd(), 'lumen.pkg.json')
+  if (fs.existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'))
+      const map = pkg?.deps || {}
+      if (spec in map) return path.resolve(process.cwd(), map[spec])
+    } catch {}
+  }
+  return path.resolve(baseDir, spec)
 }
 
 function checkPolicyDetailed(files: Array<{ path: string, ast: any }>, policy: any): { errors: string[], warnings: string[] } {

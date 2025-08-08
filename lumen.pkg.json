@@ -1,0 +1,7 @@
+{
+  "name": "lumen-proto",
+  "version": "0.1.0",
+  "deps": {
+    "option_result": "examples/libs/option_result.lum"
+  }
+}

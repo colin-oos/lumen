@@ -1,4 +1,4 @@
-import "../libs/option_result.lum"
+import "option_result"
 
 let a = 10
 let b = 2
