@@ -1,0 +1,3 @@
+module lib
+fn netFetch(url) raises net = fetch(url)
+fn combine(a, b) = a + b

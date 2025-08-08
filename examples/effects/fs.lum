@@ -1,0 +1,4 @@
+fn write(path, text) raises fs = fs.write(path, text)
+fn read(path) raises fs = fs.read(path)
+let tmp_2 = write("/tmp/lumen-fs.txt", "hello")
+let tmp_3 = read("/tmp/lumen-fs.txt")

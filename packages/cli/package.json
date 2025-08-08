@@ -1,0 +1,20 @@
+{
+  "name": "@lumen/cli",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "postbuild": "chmod +x dist/index.js || true",
+    "test": "echo \"(stub) no tests yet\" && exit 0"
+  },
+  "dependencies": {
+    "@lumen/core-ir": "workspace:*",
+    "@lumen/parser": "workspace:*",
+    "@lumen/fmt": "workspace:*",
+    "@lumen/runner": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}
