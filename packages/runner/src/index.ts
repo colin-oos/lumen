@@ -5,7 +5,7 @@ export interface RunResult {
   trace: Array<{ sid: string, note: string }>
 }
 
-export function run(ast: Expr, options?: { deniedEffects?: Set<string> }): RunResult {
+export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffects?: boolean }): RunResult {
   const trace: RunResult['trace'] = []
   const env = new Map<string, unknown>()
   let currentModule: string | null = null
@@ -252,6 +252,17 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string> }): RunRe
           // eslint-disable-next-line no-console
           console.log(...e.args.map(evalExpr))
           return null
+        }
+        if (e.effect === 'net') {
+          const args = e.args.map(evalExpr)
+          if (e.op === 'get') {
+            if (options?.mockEffects) return `MOCK:GET ${String(args[0])}`
+            return `(net.get ${String(args[0])})`
+          }
+        }
+        if (e.effect === 'time') {
+          if (e.op === 'now') return options?.mockEffects ? 0 : `(time.now)`
+          if (e.op === 'sleep') return null
         }
         if (e.effect === 'db') {
           const args = e.args.map(evalExpr)

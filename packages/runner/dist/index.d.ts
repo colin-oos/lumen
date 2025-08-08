@@ -8,4 +8,5 @@ export interface RunResult {
 }
 export declare function run(ast: Expr, options?: {
     deniedEffects?: Set<string>;
+    mockEffects?: boolean;
 }): RunResult;
