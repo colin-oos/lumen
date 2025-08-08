@@ -48,6 +48,9 @@ function nodeSignature(e) {
         case 'Call': return `Call:${e.callee.sid ?? '?'}(${e.args.map(a => a.sid ?? '?').join(',')})`;
         case 'Binary': return `Binary:${e.op}:${e.left.sid ?? '?'}:${e.right.sid ?? '?'}`;
         case 'EffectCall': return `EffectCall:${e.effect}:${e.op}(${e.args.map(a => a.sid ?? '?').join(',')})`;
+        case 'RecordLit': return `RecordLit:{${e.fields.map(f => `${f.name}:${f.expr.sid ?? '?'}`).join(',')}}`;
+        case 'TupleLit': return `TupleLit:(${e.elements.map(a => a.sid ?? '?').join(',')})`;
+        case 'Match': return `Match:${e.scrutinee.sid ?? '?'}:${e.cases.length}`;
         case 'SchemaDecl': return `SchemaDecl:${e.name}:${Object.entries(e.fields).map(([k, v]) => `${k}:${v}`).join(',')}`;
         case 'StoreDecl': return `StoreDecl:${e.name}:${e.schema}:${e.config ?? ''}`;
         case 'QueryDecl': return `QueryDecl:${e.name}:${e.source}:${e.predicate ?? ''}`;
@@ -98,6 +101,25 @@ function assignStableSids(e) {
         case 'EffectCall':
             for (const a of e.args)
                 assignStableSids(a);
+            break;
+        case 'RecordLit':
+            for (const f of e.fields)
+                assignStableSids(f.expr);
+            break;
+        case 'TupleLit':
+            for (const a of e.elements)
+                assignStableSids(a);
+            break;
+        case 'Match':
+            assignStableSids(e.scrutinee);
+            for (const c of e.cases) {
+                if (c.pattern)
+                    assignStableSids(c.pattern);
+                if (c.guard)
+                    assignStableSids(c.guard);
+                if (c.body)
+                    assignStableSids(c.body);
+            }
             break;
         case 'Ctor':
             for (const a of e.args)

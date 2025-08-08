@@ -1,3 +1,10 @@
 let greeting = "Hello, World!"
 fn shout(x) = { greeting; }
 let tmp_2 = io.print(shout("x"))
+
+// new constructs
+let person = { name: "Ada", age: 37 }
+let coords = [1, 2]
+match Inc() {
+  _ -> io.print("ok")
+}

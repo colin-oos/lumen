@@ -80,38 +80,119 @@ function parseExprRD(src) {
             return e;
         }
         if (lx.peek() === '{') {
-            // Block: { expr; expr; ... }
-            lx.next();
-            const stmts = [];
-            while (!lx.eof() && lx.peek() !== '}') {
-                const start = lx['i'];
-                // read until ';' or '}'
-                let depth = 0;
-                let buf = '';
-                while (!lx.eof()) {
-                    const ch = lx.peek();
-                    if (ch === '{')
-                        depth++;
-                    if (ch === '}') {
-                        if (depth === 0)
-                            break;
-                        depth--;
-                    }
-                    if (ch === ';' && depth === 0) {
-                        lx.next();
+            // Decide between RecordLit and Block by scanning ahead for ':' vs ';'
+            let j = lx['i'] + 1;
+            let depth = 0;
+            let sawColon = false;
+            let sawSemicolon = false;
+            while (j < lx.s.length) {
+                const ch = lx.s[j];
+                if (ch === '{')
+                    depth++;
+                else if (ch === '}') {
+                    if (depth === 0)
+                        break;
+                    depth--;
+                }
+                else if (depth === 0) {
+                    if (ch === ':') {
+                        sawColon = true;
                         break;
                     }
-                    buf += lx.next();
+                    if (ch === ';') {
+                        sawSemicolon = true;
+                        break;
+                    }
                 }
-                const stmt = buf.trim();
-                if (stmt.length > 0)
-                    stmts.push(parseExprRD(stmt));
-                lx.eatWs();
+                j++;
             }
-            if (lx.peek() === '}')
+            if (sawColon && !sawSemicolon) {
+                // Parse as RecordLit: { key: expr, key2: expr }
                 lx.next();
-            return { kind: 'Block', sid: (0, core_ir_1.sid)('block'), stmts };
+                const fields = [];
+                lx.eatWs();
+                if (lx.peek() !== '}') {
+                    while (true) {
+                        lx.eatWs();
+                        let key = '';
+                        while (/[A-Za-z_]/.test(lx.peek()))
+                            key += lx.next();
+                        lx.eatWs();
+                        if (lx.peek() === ':')
+                            lx.next();
+                        lx.eatWs();
+                        const value = parseAdd();
+                        fields.push({ name: key, expr: value });
+                        lx.eatWs();
+                        if (lx.peek() === ',') {
+                            lx.next();
+                            lx.eatWs();
+                            continue;
+                        }
+                        break;
+                    }
+                }
+                if (lx.peek() === '}')
+                    lx.next();
+                return { kind: 'RecordLit', sid: (0, core_ir_1.sid)('rec'), fields };
+            }
+            else {
+                // Block: { expr; expr; ... }
+                lx.next();
+                const stmts = [];
+                while (!lx.eof() && lx.peek() !== '}') {
+                    // read until ';' or '}'
+                    let depth2 = 0;
+                    let buf = '';
+                    while (!lx.eof()) {
+                        const ch = lx.peek();
+                        if (ch === '{')
+                            depth2++;
+                        if (ch === '}') {
+                            if (depth2 === 0)
+                                break;
+                            depth2--;
+                        }
+                        if (ch === ';' && depth2 === 0) {
+                            lx.next();
+                            break;
+                        }
+                        buf += lx.next();
+                    }
+                    const stmt = buf.trim();
+                    if (stmt.length > 0)
+                        stmts.push(parseExprRD(stmt));
+                    lx.eatWs();
+                }
+                if (lx.peek() === '}')
+                    lx.next();
+                return { kind: 'Block', sid: (0, core_ir_1.sid)('block'), stmts };
+            }
         }
+        // tuple or record literal shorthand
+        if (lx.peek() === '[') {
+            // allow [a, b] as tuple (alt syntax)
+            lx.next();
+            const elements = [];
+            lx.eatWs();
+            if (lx.peek() !== ']') {
+                while (true) {
+                    const el = parseAdd();
+                    elements.push(el);
+                    lx.eatWs();
+                    if (lx.peek() === ',') {
+                        lx.next();
+                        lx.eatWs();
+                        continue;
+                    }
+                    break;
+                }
+            }
+            if (lx.peek() === ']')
+                lx.next();
+            return { kind: 'TupleLit', sid: (0, core_ir_1.sid)('tuple'), elements };
+        }
+        // note: record literal handled above in '{' case
         // identifier (possibly qualified with dots) or call
         let name = '';
         if (/[A-Za-z_]/.test(lx.peek())) {
@@ -341,6 +422,57 @@ function parse(source) {
             if (m) {
                 decls.push({ kind: 'Send', sid: (0, core_ir_1.sid)('send'), actor: parseExprRD(m[1]), message: parseExprRD(m[2]) });
                 continue;
+            }
+        }
+        if (ln.startsWith('match ')) {
+            // match expr { pattern [if guard] -> expr; ... }
+            let mm = ln.match(/^match\s+(.+)\s*\{$/);
+            if (mm) {
+                const scr = parseExprRD(mm[1]);
+                idx += 1;
+                const cases = [];
+                for (; idx < lines.length; idx++) {
+                    const line = lines[idx];
+                    if (line === '}')
+                        break;
+                    let cm = line.match(/^(.+?)\s+if\s+(.+?)\s*->\s*(.+)$/);
+                    if (cm) {
+                        cases.push({ pattern: parseExprRD(cm[1]), guard: parseExprRD(cm[2]), body: parseExprRD(cm[3]) });
+                        continue;
+                    }
+                    cm = line.match(/^(.+?)\s*->\s*(.+)$/);
+                    if (cm) {
+                        cases.push({ pattern: parseExprRD(cm[1]), body: parseExprRD(cm[2]) });
+                        continue;
+                    }
+                }
+                decls.push({ kind: 'Match', sid: (0, core_ir_1.sid)('match'), scrutinee: scr, cases });
+                continue;
+            }
+            mm = ln.match(/^match\s+(.+)$/);
+            if (mm) {
+                const scr = parseExprRD(mm[1]);
+                if (lines[idx + 1] && lines[idx + 1].trim() === '{') {
+                    idx += 2;
+                    const cases = [];
+                    for (; idx < lines.length; idx++) {
+                        const line = lines[idx];
+                        if (line === '}')
+                            break;
+                        let cm = line.match(/^(.+?)\s+if\s+(.+?)\s*->\s*(.+)$/);
+                        if (cm) {
+                            cases.push({ pattern: parseExprRD(cm[1]), guard: parseExprRD(cm[2]), body: parseExprRD(cm[3]) });
+                            continue;
+                        }
+                        cm = line.match(/^(.+?)\s*->\s*(.+)$/);
+                        if (cm) {
+                            cases.push({ pattern: parseExprRD(cm[1]), body: parseExprRD(cm[2]) });
+                            continue;
+                        }
+                    }
+                    decls.push({ kind: 'Match', sid: (0, core_ir_1.sid)('match'), scrutinee: scr, cases });
+                    continue;
+                }
             }
         }
         // Fallback: treat as bare expression declaration by synthesizing a let _N

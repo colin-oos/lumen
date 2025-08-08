@@ -258,6 +258,46 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string> }): RunRe
         }
         return null
       }
+      case 'RecordLit': {
+        const obj: any = {}
+        for (const f of e.fields as any[]) obj[f.name] = evalExpr(f.expr)
+        return obj
+      }
+      case 'TupleLit': {
+        return (e.elements as any[]).map(x => evalExpr(x))
+      }
+      case 'Match': {
+        const value = evalExpr(e.scrutinee)
+        const isCtor = (v: any) => v && typeof v === 'object' && '$' in v && Array.isArray(v.values)
+        const equal = (a: any, b: any): boolean => JSON.stringify(a) === JSON.stringify(b)
+        const hasEffectCall = (expr: any): boolean => {
+          if (!expr || typeof expr !== 'object') return false
+          if (expr.kind === 'EffectCall') return true
+          for (const k of Object.keys(expr)) {
+            const v = (expr as any)[k]
+            if (v && typeof v === 'object' && 'kind' in v) { if (hasEffectCall(v)) return true }
+            if (Array.isArray(v)) { for (const it of v) if (it && typeof it === 'object' && 'kind' in it) { if (hasEffectCall(it)) return true } }
+          }
+          return false
+        }
+        for (const c of e.cases as any[]) {
+          const patVal = evalExpr(c.pattern)
+          let matched = false
+          if (typeof patVal === 'string' && (patVal === '_' || patVal === '*')) matched = true
+          else if (isCtor(patVal) && isCtor(value)) {
+            matched = (patVal as any).$ === (value as any).$ && equal((patVal as any).values, (value as any).values)
+          } else matched = equal(patVal, value)
+          if (matched) {
+            if (c.guard) {
+              if (hasEffectCall(c.guard)) continue
+              const g = evalExpr(c.guard)
+              if (!g) continue
+            }
+            return evalExpr(c.body)
+          }
+        }
+        return null
+      }
       case 'Block': {
         let last: unknown = null
         for (const s of e.stmts) last = evalExpr(s)

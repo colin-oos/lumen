@@ -59,6 +59,26 @@ export type Expr = {
     name: string;
     expr: Expr;
 } | {
+    kind: 'RecordLit';
+    sid: Sid;
+    fields: Array<{
+        name: string;
+        expr: Expr;
+    }>;
+} | {
+    kind: 'TupleLit';
+    sid: Sid;
+    elements: Expr[];
+} | {
+    kind: 'Match';
+    sid: Sid;
+    scrutinee: Expr;
+    cases: Array<{
+        pattern: Expr;
+        guard?: Expr;
+        body: Expr;
+    }>;
+} | {
     kind: 'SchemaDecl';
     sid: Sid;
     name: string;
