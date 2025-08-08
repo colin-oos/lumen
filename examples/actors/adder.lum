@@ -1,0 +1,12 @@
+enum Msg = Add(Int) | Get
+actor Adder {
+  state total: Int = 0
+  on Add(1) -> { total = total + 1; }
+  on Add(2) -> { total = total + 2; }
+  on Get() reply Int -> total
+}
+let a = spawn Adder
+send a Add(1)
+send a Add(2)
+let v = ask a Get()
+let tmp_6 = io.print(v)
