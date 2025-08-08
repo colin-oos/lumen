@@ -16,14 +16,17 @@ function parseSqliteConfig(config) {
         return { path: rest, table: 'main' };
     return { path: rest.slice(0, idx), table: rest.slice(idx + 1) };
 }
-function loadSqlite(config) {
+function loadSqlite(config, where, projection) {
     const parsed = parseSqliteConfig(config);
     if (!parsed)
         return [];
-    // Deterministic mock per table name
+    let rows = [];
     if (parsed.table === 'users')
-        return [{ id: 1, name: 'Ada' }, { id: 2, name: 'Linus' }];
+        rows = [{ id: 1, name: 'Ada' }, { id: 2, name: 'Linus' }];
     if (parsed.table === 'items')
-        return [{ id: 100, name: 'Widget' }];
-    return [];
+        rows = [{ id: 100, name: 'Widget' }];
+    const filtered = where ? rows.filter(where) : rows;
+    if (projection && projection.length > 0)
+        return filtered.map(r => Object.fromEntries(projection.map(f => [f, r[f]])));
+    return filtered;
 }

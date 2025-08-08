@@ -145,39 +145,49 @@ function run(ast, options) {
                                 stores.set(d.name, []);
                         }
                         if (d.kind === 'QueryDecl') {
-                            const rows = stores.get(d.source) || [];
-                            const results = [];
-                            for (const row of rows) {
-                                // Evaluate predicate in a scoped env with row fields
-                                let pass = true;
-                                if (d.predicate) {
-                                    const prev = new Map(env);
-                                    env.clear();
-                                    if (row && typeof row === 'object')
-                                        for (const [k, v] of Object.entries(row))
-                                            env.set(k, v);
-                                    try {
-                                        pass = Boolean(evalExpr(d.predicate));
-                                    }
-                                    finally {
-                                        env.clear();
-                                        for (const [k, v] of prev)
-                                            env.set(k, v);
-                                    }
-                                }
-                                if (!pass)
-                                    continue;
-                                if (d.projection && d.projection.length > 0) {
-                                    const proj = {};
-                                    for (const f of d.projection)
-                                        proj[f] = row[f];
-                                    results.push(proj);
-                                }
-                                else
-                                    results.push(row);
-                            }
                             const key = currentModule ? `${currentModule}.${d.name}` : d.name;
-                            env.set(key, results);
+                            // if store name exists and was loaded from sqlite, we can eval where/projection via adapter against store config
+                            const storeDecl = ast.decls?.find((x) => x.kind === 'StoreDecl' && x.name === d.source);
+                            const whereFn = d.predicate ? (row) => {
+                                const prev = new Map(env);
+                                env.clear();
+                                for (const [k, v] of Object.entries(row))
+                                    env.set(k, v);
+                                let ok = true;
+                                try {
+                                    ok = Boolean(evalExpr(d.predicate));
+                                }
+                                finally {
+                                    env.clear();
+                                    for (const [k, v] of prev)
+                                        env.set(k, v);
+                                }
+                                return ok;
+                            } : undefined;
+                            if (storeDecl && (0, sqlite_1.isSqliteConfig)(storeDecl.config)) {
+                                const arr = (0, sqlite_1.loadSqlite)(storeDecl.config, whereFn, d.projection);
+                                env.set(key, arr);
+                            }
+                            else {
+                                const rows = stores.get(d.source) || [];
+                                const results = [];
+                                for (const row of rows) {
+                                    let pass = true;
+                                    if (whereFn)
+                                        pass = whereFn(row);
+                                    if (!pass)
+                                        continue;
+                                    if (d.projection && d.projection.length > 0) {
+                                        const proj = {};
+                                        for (const f of d.projection)
+                                            proj[f] = row[f];
+                                        results.push(proj);
+                                    }
+                                    else
+                                        results.push(row);
+                                }
+                                env.set(key, results);
+                            }
                         }
                         last = null;
                     }

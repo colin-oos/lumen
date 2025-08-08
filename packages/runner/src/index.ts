@@ -112,27 +112,35 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
               } else stores.set(d.name, [])
             }
             if (d.kind === 'QueryDecl') {
-              const rows = stores.get(d.source) || []
-              const results: any[] = []
-              for (const row of rows) {
-                // Evaluate predicate in a scoped env with row fields
-                let pass = true
-                if (d.predicate) {
-                  const prev = new Map(env)
-                  env.clear()
-                  if (row && typeof row === 'object') for (const [k, v] of Object.entries(row)) env.set(k, v)
-                  try { pass = Boolean(evalExpr(d.predicate)) }
-                  finally { env.clear(); for (const [k,v] of prev) env.set(k,v) }
-                }
-                if (!pass) continue
-                if (d.projection && d.projection.length > 0) {
-                  const proj: any = {}
-                  for (const f of d.projection) proj[f] = (row as any)[f]
-                  results.push(proj)
-                } else results.push(row)
-              }
               const key = currentModule ? `${currentModule}.${d.name}` : d.name
-              env.set(key, results)
+              // if store name exists and was loaded from sqlite, we can eval where/projection via adapter against store config
+              const storeDecl = (ast as any).decls?.find((x: any) => x.kind === 'StoreDecl' && x.name === d.source)
+              const whereFn = d.predicate ? (row: Record<string, unknown>) => {
+                const prev = new Map(env)
+                env.clear()
+                for (const [k, v] of Object.entries(row)) env.set(k, v)
+                let ok = true
+                try { ok = Boolean(evalExpr(d.predicate as any)) } finally { env.clear(); for (const [k,v] of prev) env.set(k,v) }
+                return ok
+              } : undefined
+              if (storeDecl && isSqliteConfig(storeDecl.config)) {
+                const arr = loadSqlite(storeDecl.config as string, whereFn, d.projection as any)
+                env.set(key, arr)
+              } else {
+                const rows = stores.get(d.source) || []
+                const results: any[] = []
+                for (const row of rows) {
+                  let pass = true
+                  if (whereFn) pass = whereFn(row as any)
+                  if (!pass) continue
+                  if (d.projection && d.projection.length > 0) {
+                    const proj: any = {}
+                    for (const f of d.projection) proj[f] = (row as any)[f]
+                    results.push(proj)
+                  } else results.push(row)
+                }
+                env.set(key, results)
+              }
             }
             last = null
           } else if (d.kind === 'ActorDecl') {
