@@ -5,8 +5,13 @@ actor Counter {
   on Add(1) -> { count = count + 1; }
   on Get() reply Int -> count
 }
+match Inc() {
+  Inc() -> 1
+  Add(1) -> 2
+  Get() -> 3
+}
 let c = spawn Counter
 send c Inc()
 send c Add(1)
 let value = ask c Get()
-let tmp_6 = io.print(value)
+let tmp_7 = io.print(value)

@@ -535,10 +535,31 @@ function checkTypesProject(files: Array<{ path: string, ast: any }>): { errors: 
       case 'Match': {
         const _t = checkExpr(e.scrutinee, env, file)
         let branchT: Type = 'Unknown'
+        // collect constructors for exhaustiveness
+        const ctors = new Set<string>()
+        let enumNameForCases: string | null = null
+        let onlyCtors = true
         for (const c of e.cases as any[]) {
           if (c.guard) checkExpr(c.guard, env, file)
           const bt = checkExpr(c.body, env, file)
           branchT = branchT === 'Unknown' ? bt : (bt === branchT ? bt : 'Unknown')
+          if (c.pattern?.kind === 'Ctor') {
+            const meta = ctorToEnum.get(c.pattern.name)
+            if (meta) {
+              ctors.add(c.pattern.name)
+              enumNameForCases = enumNameForCases ?? meta.enumName
+              if (enumNameForCases !== meta.enumName) onlyCtors = false
+            } else onlyCtors = false
+          } else if (c.pattern?.kind === 'Var' && (c.pattern.name === '_' || c.pattern.name === '*')) {
+            onlyCtors = false
+          } else {
+            onlyCtors = false
+          }
+        }
+        if (onlyCtors && enumNameForCases) {
+          const variants = enumToVariants.get(enumNameForCases) || []
+          const missing = variants.map(v => v.name).filter(vn => !ctors.has(vn))
+          if (missing.length > 0) errors.push(`${file}: match not exhaustive for ${enumNameForCases}; missing: ${missing.join(', ')}`)
         }
         return branchT
       }
