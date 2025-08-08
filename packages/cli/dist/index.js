@@ -546,6 +546,7 @@ function checkTypesProject(files) {
     const enumToVariants = new Map();
     const schemas = new Map();
     const stores = new Map();
+    const enumNames = new Set();
     function parseTypeName(t) {
         if (!t)
             return 'Unknown';
@@ -555,6 +556,8 @@ function checkTypesProject(files) {
             return 'Text';
         if (t === 'Bool')
             return 'Bool';
+        if (enumNames.has(t))
+            return `ADT:${t}`;
         return 'Unknown';
     }
     function effectReturnType(eff, op) {
@@ -579,6 +582,7 @@ function checkTypesProject(files) {
             }
             if (d.kind === 'EnumDecl') {
                 enumToVariants.set(d.name, d.variants.map(v => ({ name: v.name })));
+                enumNames.add(d.name);
                 for (const v of d.variants) {
                     const params = v.params.map(parseTypeName);
                     ctorToEnum.set(v.name, { enumName: d.name, params });

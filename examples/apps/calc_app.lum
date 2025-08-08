@@ -19,3 +19,9 @@ let r3 = match c {
 }
 // chain with andThenRes: since r3 is Err, it propagates
 let r4 = option_result.andThenRes(r3, option_result.Ok(42))
+
+// annotated function returning Result (informational in current checker)
+fn demo(x): Result = match x {
+  0 -> option_result.Err("div by zero")
+  _ -> option_result.Ok(x)
+}
