@@ -1,21 +1,20 @@
-// Supervisor example (sketch)
-
 enum Msg = Crash | Ping | Get
-
 actor Worker {
   state alive: Int = 1
   on Ping() -> io.print("worker:pong")
   on Get() reply Int -> alive
+  on _ -> 0
 }
-
 actor Supervisor {
-  state w: Int = 0
-  on Crash() -> { io.print("supervisor:restart"); }
-  on Ping() -> io.print("supervisor:ping")
-  on Get() reply Int -> 0
+  state w: Int = spawn Worker
+  on Crash() -> { io: "" }
+  on Ping() -> send w Ping()
+  on Get() reply Int -> ask w Get()
 }
-
 let s = spawn Supervisor
 send s Ping()
-let v = ask s Get()
-io.print(v)
+let before = ask s Get()
+let tmp_6 = io.print(before)
+send s Crash()
+let after = ask s Get()
+let tmp_9 = io.print(after)
