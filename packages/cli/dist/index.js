@@ -10,7 +10,23 @@ const parser_1 = require("@lumen/parser");
 const fmt_1 = require("@lumen/fmt");
 const core_ir_1 = require("@lumen/core-ir");
 const runner_1 = require("@lumen/runner");
-const lsp_1 = require("@lumen/lsp");
+let lspDiagnostics = null;
+let lspHover = null;
+try {
+    // prefer compiled lsp dist
+    const lsp = require('@lumen/lsp');
+    lspDiagnostics = lsp.getDiagnostics;
+    lspHover = lsp.getHover;
+}
+catch {
+    try {
+        // fallback to local build path
+        const lsp = require('../lsp/dist/index.js');
+        lspDiagnostics = lsp.getDiagnostics;
+        lspHover = lsp.getHover;
+    }
+    catch { }
+}
 let DISABLE_CACHE = false;
 function usage() {
     console.log(`lumen <cmd> [args]
@@ -108,12 +124,12 @@ async function main() {
                     const req = JSON.parse(line);
                     const src = req.source ?? (req.file ? fs_1.default.readFileSync(path_1.default.resolve(req.file), 'utf8') : '');
                     if (req.action === 'diagnostics') {
-                        const diags = (0, lsp_1.getDiagnostics)(src);
+                        const diags = lspDiagnostics(src);
                         process.stdout.write(JSON.stringify({ ok: true, diagnostics: diags }) + '\n');
                     }
                     else if (req.action === 'hover') {
                         const sym = String(req.symbol || '');
-                        const info = (0, lsp_1.getHover)(src, sym);
+                        const info = lspHover(src, sym);
                         process.stdout.write(JSON.stringify({ ok: true, hover: info }) + '\n');
                     }
                     else {
@@ -995,9 +1011,11 @@ function checkTypesProject(files) {
                             errors.push(`${f.path}: query ${d.name} selects unknown field ${p}`);
                     // basic predicate variable usage: allow only field names and literals/operators
                     if (d.predicate) {
-                        const ok = validatePredicateUses(d.predicate, schema);
-                        if (!ok)
-                            errors.push(`${f.path}: query ${d.name} where-clause references unknown fields`);
+                        // Build env with field types and type-check predicate
+                        const env = new Map();
+                        for (const [k, v] of Object.entries(schema))
+                            env.set(k, parseTypeName(v));
+                        const _t = checkExpr(d.predicate, env, f.path);
                     }
                 }
             }
