@@ -124,13 +124,50 @@ async function main() {
                     const req = JSON.parse(line);
                     const src = req.source ?? (req.file ? fs_1.default.readFileSync(path_1.default.resolve(req.file), 'utf8') : '');
                     if (req.action === 'diagnostics') {
-                        const diags = lspDiagnostics(src);
-                        process.stdout.write(JSON.stringify({ ok: true, diagnostics: diags }) + '\n');
+                        // If file provided, use merged AST + checks; else fallback to LSP single-file diags
+                        if (req.file) {
+                            const file = path_1.default.resolve(req.file);
+                            const ast = loadWithImports(file);
+                            const policyPath = findPolicyFile(file);
+                            const files = Array.from(new Set([file, ...collectImportsTransitive(file)])).map(p => ({ path: p, ast: (0, parser_1.parse)(fs_1.default.readFileSync(p, 'utf8')) }));
+                            const effErrors = checkEffectsProject(files);
+                            const typeReport = checkTypesProject(files);
+                            const policy = policyPath && fs_1.default.existsSync(policyPath) ? JSON.parse(fs_1.default.readFileSync(policyPath, 'utf8')) : null;
+                            const policyReport = policy ? checkPolicyDetailed(files, policy) : { errors: [], warnings: [] };
+                            const diagnostics = [
+                                ...typeReport.errors.map(m => ({ message: m })),
+                                ...effErrors.map(m => ({ message: m })),
+                                ...policyReport.errors.map(m => ({ message: m })),
+                                ...policyReport.warnings.map(m => ({ message: `warn: ${m}` }))
+                            ];
+                            process.stdout.write(JSON.stringify({ ok: true, diagnostics }) + '\n');
+                        }
+                        else {
+                            const diags = lspDiagnostics ? lspDiagnostics(src) : [];
+                            process.stdout.write(JSON.stringify({ ok: true, diagnostics: diags }) + '\n');
+                        }
                     }
                     else if (req.action === 'hover') {
                         const sym = String(req.symbol || '');
-                        const info = lspHover(src, sym);
+                        const info = lspHover ? lspHover(src, sym) : {};
                         process.stdout.write(JSON.stringify({ ok: true, hover: info }) + '\n');
+                    }
+                    else if (req.action === 'symbols') {
+                        const file = req.file ? path_1.default.resolve(req.file) : null;
+                        const ast = file ? loadWithImports(file) : (0, parser_1.parse)(src);
+                        const symbols = [];
+                        if (ast.kind === 'Program') {
+                            let mod = null;
+                            for (const d of ast.decls) {
+                                if (d.kind === 'ModuleDecl')
+                                    mod = d.name;
+                                if (d.kind === 'EnumDecl')
+                                    symbols.push({ kind: 'enum', name: mod ? `${mod}.${d.name}` : d.name });
+                                if (d.kind === 'Fn' && d.name)
+                                    symbols.push({ kind: 'function', name: mod ? `${mod}.${d.name}` : d.name });
+                            }
+                        }
+                        process.stdout.write(JSON.stringify({ ok: true, symbols }) + '\n');
                     }
                     else {
                         process.stdout.write(JSON.stringify({ ok: false, error: 'unknown action' }) + '\n');
