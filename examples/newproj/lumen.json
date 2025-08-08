@@ -1,5 +1,6 @@
 {
   "policy": {
-    "deny": []
+    "deny": ["net"],
+    "warn": ["fs", "time"]
   }
 }

@@ -1,0 +1,22 @@
+enum Option = Some(Int) | None
+
+enum Result = Ok(Int) | Err(Text)
+
+let x0 = Some(1)
+match x0 {
+  Some(1) -> Some(2)
+  Some(2) -> Some(3)
+  _ -> None
+}
+
+let y0 = 2
+match y0 {
+  0 -> Err("div by zero")
+  _ -> Ok(4 / 2)
+}
+
+let z0 = 0
+match z0 {
+  0 -> Err("div by zero")
+  _ -> Ok(1 / z0)
+}
