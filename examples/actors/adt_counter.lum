@@ -1,0 +1,12 @@
+enum Msg = Inc | Add(Int) | Get
+actor Counter {
+  state count: Int = 0
+  on Inc() -> { count = count + 1; }
+  on Add(1) -> { count = count + 1; }
+  on Get() reply Int -> count
+}
+let c = spawn Counter
+send c Inc()
+send c Add(1)
+let value = ask c Get()
+let tmp_6 = io.print(value)

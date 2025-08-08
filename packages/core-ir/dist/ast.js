@@ -53,6 +53,8 @@ function nodeSignature(e) {
         case 'QueryDecl': return `QueryDecl:${e.name}:${e.source}:${e.predicate ?? ''}`;
         case 'ImportDecl': return `ImportDecl:${e.path}`;
         case 'ModuleDecl': return `ModuleDecl:${e.name}`;
+        case 'EnumDecl': return `EnumDecl:${e.name}:${e.variants.map(v => `${v.name}(${v.params.join(',')})`).join('|')}`;
+        case 'Ctor': return `Ctor:${e.name}(${e.args.map(a => a.sid ?? '?').join(',')})`;
         case 'Block': return `Block:${e.stmts.map(s => s.sid ?? '?').join(',')}`;
         case 'Assign': return `Assign:${e.name}:${e.expr.sid ?? '?'}`;
         case 'ActorDecl': return `ActorDecl:${e.name}:${e.param?.name ?? ''}:${e.body.sid ?? '?'}`;
@@ -94,6 +96,10 @@ function assignStableSids(e) {
                 assignStableSids(s);
             break;
         case 'EffectCall':
+            for (const a of e.args)
+                assignStableSids(a);
+            break;
+        case 'Ctor':
             for (const a of e.args)
                 assignStableSids(a);
             break;

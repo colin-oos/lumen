@@ -84,6 +84,19 @@ export type Expr = {
     sid: Sid;
     name: string;
 } | {
+    kind: 'EnumDecl';
+    sid: Sid;
+    name: string;
+    variants: Array<{
+        name: string;
+        params: string[];
+    }>;
+} | {
+    kind: 'Ctor';
+    sid: Sid;
+    name: string;
+    args: Expr[];
+} | {
     kind: 'ActorDecl';
     sid: Sid;
     name: string;

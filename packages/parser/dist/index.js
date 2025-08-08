@@ -152,6 +152,10 @@ function parseExprRD(src) {
                         return { kind: 'EffectCall', sid: (0, core_ir_1.sid)('eff'), effect: head, op, args };
                     }
                 }
+                // ADT constructor if starts with uppercase and is unqualified
+                if (/^[A-Z]/.test(name) && !name.includes('.')) {
+                    return { kind: 'Ctor', sid: (0, core_ir_1.sid)('ctor'), name, args };
+                }
                 // spawn as expression: spawn Name -> treat as Call to builtin spawn
                 if (name === 'spawn' && args.length === 1 && args[0].kind === 'Var') {
                     return { kind: 'Spawn', sid: (0, core_ir_1.sid)('spawn'), actorName: args[0].name };
@@ -215,6 +219,22 @@ function parse(source) {
             const m = ln.match(/^import\s+"([^"]+)"$/);
             if (m) {
                 decls.push({ kind: 'ImportDecl', sid: (0, core_ir_1.sid)('import'), path: m[1] });
+                continue;
+            }
+        }
+        if (ln.startsWith('enum ')) {
+            // enum Name = A | B(Int, Text)
+            const m = ln.match(/^enum\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/);
+            if (m) {
+                const name = m[1];
+                const rhs = m[2];
+                const variants = rhs.split('|').map(s => s.trim()).filter(Boolean).map(v => {
+                    const mm = v.match(/^([A-Za-z_][A-Za-z0-9_]*)(?:\(([^)]*)\))?$/);
+                    const vname = mm?.[1] || v;
+                    const params = (mm?.[2] || '').trim() ? (mm[2].split(',').map(x => x.trim()).filter(Boolean)) : [];
+                    return { name: vname, params };
+                });
+                decls.push({ kind: 'EnumDecl', sid: (0, core_ir_1.sid)('enum'), name, variants });
                 continue;
             }
         }

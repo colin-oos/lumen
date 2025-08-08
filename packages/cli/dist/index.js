@@ -104,11 +104,14 @@ async function main() {
         const policyPathFlagIdx = rest.indexOf('--policy');
         const policyPath = policyPathFlagIdx >= 0 ? path_1.default.resolve(rest[policyPathFlagIdx + 1]) : findPolicyFile(resolved);
         const policy = policyPath && fs_1.default.existsSync(policyPath) ? JSON.parse(fs_1.default.readFileSync(policyPath, 'utf8')) : null;
-        const effErrors = checkEffectsProject(parsed.map(p => ({ path: p.path, ast: p.ast })));
+        const projectFiles = parsed.map(p => ({ path: p.path, ast: p.ast }));
+        const effErrors = checkEffectsProject(projectFiles);
+        const guardErrors = checkGuardPurityProject(projectFiles);
         const typeReport = checkTypesProject(parsed.map(p => ({ path: p.path, ast: p.ast })));
         const policyReport = policy ? checkPolicyDetailed(parsed.map(p => ({ path: p.path, ast: p.ast })), policy) : { errors: [], warnings: [] };
         if (json) {
-            const payload = { ok: ok && effErrors.length === 0 && policyReport.errors.length === 0 && (!strictWarn || policyReport.warnings.length === 0) && typeReport.errors.length === 0, files: files, errors: effErrors, policy: policyReport, types: typeReport };
+            const allErrors = [...effErrors, ...guardErrors, ...policyReport.errors];
+            const payload = { ok: ok && allErrors.length === 0 && (!strictWarn || policyReport.warnings.length === 0) && typeReport.errors.length === 0, files: files, errors: allErrors, policy: policyReport, types: typeReport };
             console.log(JSON.stringify(payload, null, 2));
             if (!payload.ok)
                 process.exit(2);
@@ -121,7 +124,7 @@ async function main() {
                 console.error(e);
                 ok = false;
             }
-            for (const e of [...effErrors, ...policyReport.errors]) {
+            for (const e of [...effErrors, ...guardErrors, ...policyReport.errors]) {
                 console.error(e);
                 ok = false;
             }
@@ -354,6 +357,64 @@ function checkEffectsProject(files) {
         walk(f.ast, null);
     return Array.from(new Set(errors));
 }
+// Guards must be pure: no EffectCall and no calls to functions with effects
+function checkGuardPurityProject(files) {
+    const table = new Map();
+    for (const f of files) {
+        if (f.ast.kind !== 'Program')
+            continue;
+        const moduleName = getModuleName(f.ast);
+        for (const d of f.ast.decls) {
+            if (d.kind === 'Fn' && d.name) {
+                const set = new Set();
+                for (const v of d.effects)
+                    set.add(v);
+                const key = moduleName ? `${moduleName}.${d.name}` : d.name;
+                table.set(key, { effects: set, path: f.path });
+            }
+        }
+    }
+    const errors = [];
+    function walkGuard(expr, currentFile, moduleName) {
+        if (!expr || typeof expr !== 'object')
+            return;
+        if (expr.kind === 'EffectCall') {
+            errors.push(`${currentFile}: guard must be pure (found effect ${expr.effect}.${expr.op})`);
+            return;
+        }
+        if (expr.kind === 'Call' && expr.callee?.kind === 'Var') {
+            const name = expr.callee.name;
+            const candidates = name.includes('.') ? [name] : [name, ...(moduleName ? [`${moduleName}.${name}`] : [])];
+            const meta = candidates.map(n => table.get(n)).find(Boolean);
+            if (meta && meta.effects.size > 0) {
+                errors.push(`${currentFile}: guard must be pure (function ${name} has effects: ${Array.from(meta.effects).join(', ')})`);
+            }
+        }
+        for (const k of Object.keys(expr)) {
+            const v = expr[k];
+            if (v && typeof v === 'object' && 'kind' in v)
+                walkGuard(v, currentFile, moduleName);
+            if (Array.isArray(v))
+                for (const it of v)
+                    if (it && typeof it === 'object' && 'kind' in it)
+                        walkGuard(it, currentFile, moduleName);
+        }
+    }
+    for (const f of files) {
+        const ast = f.ast;
+        if (ast.kind !== 'Program')
+            continue;
+        const moduleName = getModuleName(ast);
+        for (const d of ast.decls) {
+            if (d.kind === 'ActorDeclNew') {
+                for (const h of d.handlers)
+                    if (h.guard)
+                        walkGuard(h.guard, f.path, moduleName);
+            }
+        }
+    }
+    return Array.from(new Set(errors));
+}
 // Import expansion helpers
 function collectImportsTransitive(entry, visited = new Set()) {
     if (visited.has(entry))
@@ -465,6 +526,10 @@ function checkTypesProject(files) {
     const errors = [];
     // simple env per file; fn table for arity checking
     const fnSigs = new Map();
+    // ADT constructor table: CtorName -> { enumName, params: Type[] }
+    const adtCtors = new Map();
+    const ctorToEnum = new Map();
+    const enumToVariants = new Map();
     function parseTypeName(t) {
         if (!t)
             return 'Unknown';
@@ -496,6 +561,13 @@ function checkTypesProject(files) {
                 const ret = parseTypeName(d.returnType);
                 fnSigs.set(mod ? `${mod}.${d.name}` : d.name, { params, ret, path: f.path });
             }
+            if (d.kind === 'EnumDecl') {
+                enumToVariants.set(d.name, d.variants.map(v => ({ name: v.name })));
+                for (const v of d.variants) {
+                    const params = v.params.map(parseTypeName);
+                    ctorToEnum.set(v.name, { enumName: d.name, params });
+                }
+            }
         }
     }
     // Second pass: check bodies
@@ -507,6 +579,23 @@ function checkTypesProject(files) {
                 return typeOfLiteral(e);
             case 'Var':
                 return env.get(e.name) ?? 'Unknown';
+            case 'Ctor': {
+                const meta = ctorToEnum.get(e.name);
+                const argTypes = e.args.map(a => checkExpr(a, env, file));
+                if (meta) {
+                    if (meta.params.length !== argTypes.length)
+                        errors.push(`${file}: constructor ${e.name} arity ${argTypes.length} but expected ${meta.params.length}`);
+                    else {
+                        for (let i = 0; i < meta.params.length; i++) {
+                            if (meta.params[i] !== 'Unknown' && argTypes[i] !== 'Unknown' && meta.params[i] !== argTypes[i]) {
+                                errors.push(`${file}: constructor ${e.name} arg ${i + 1} type ${argTypes[i]} but expected ${meta.params[i]}`);
+                            }
+                        }
+                    }
+                    return `ADT:${meta.enumName}`;
+                }
+                return 'Unknown';
+            }
             case 'Let': {
                 const t = checkExpr(e.expr, env, file);
                 const declT = parseTypeName(e.type);
@@ -577,6 +666,42 @@ function checkTypesProject(files) {
             continue;
         for (const d of f.ast.decls)
             checkExpr(d, env, f.path);
+        // Exhaustiveness for handler-style actors when patterns are constructors of same enum
+        for (const d of f.ast.decls) {
+            if (d.kind === 'ActorDeclNew') {
+                const ctors = new Set();
+                let enumName = null;
+                let onlyCtors = true;
+                for (const h of d.handlers) {
+                    if (h.pattern?.kind === 'Ctor') {
+                        const meta = ctorToEnum.get(h.pattern.name);
+                        if (meta) {
+                            ctors.add(h.pattern.name);
+                            enumName = enumName ?? meta.enumName;
+                            if (enumName !== meta.enumName)
+                                onlyCtors = false;
+                        }
+                        else
+                            onlyCtors = false;
+                    }
+                    else if (h.pattern?.kind === 'Var' && (h.pattern.name === '_' || h.pattern.name === '*')) {
+                        // wildcard -> treat as exhaustive
+                        onlyCtors = false;
+                        enumName = null;
+                        break;
+                    }
+                    else {
+                        onlyCtors = false;
+                    }
+                }
+                if (onlyCtors && enumName) {
+                    const variants = enumToVariants.get(enumName) || [];
+                    const missing = variants.map(v => v.name).filter(vn => !ctors.has(vn));
+                    if (missing.length > 0)
+                        errors.push(`${f.path}: actor ${d.name} handlers not exhaustive for ${enumName}; missing: ${missing.join(', ')}`);
+                }
+            }
+        }
     }
     return { errors };
 }

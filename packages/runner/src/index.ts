@@ -52,7 +52,20 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string> }): RunRe
               // guard check (must be pure, we just evaluate expression)
               let guardOk = true
               const hAny: any = handler
-              if (hAny.guard) guardOk = Boolean(evalExpr(hAny.guard as any))
+              if (hAny.guard) {
+                const hasEffectCall = (expr: any): boolean => {
+                  if (!expr || typeof expr !== 'object') return false
+                  if (expr.kind === 'EffectCall') return true
+                  for (const k of Object.keys(expr)) {
+                    const v = (expr as any)[k]
+                    if (v && typeof v === 'object' && 'kind' in v) { if (hasEffectCall(v)) return true }
+                    if (Array.isArray(v)) { for (const it of v) if (it && typeof it === 'object' && 'kind' in it) { if (hasEffectCall(it)) return true } }
+                  }
+                  return false
+                }
+                if (hasEffectCall(hAny.guard)) guardOk = false
+                else guardOk = Boolean(evalExpr(hAny.guard as any))
+              }
               let result: unknown = null
               if (guardOk) result = handler.run()
               // write back state
@@ -82,6 +95,9 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string> }): RunRe
             last = fnv
           } else if (d.kind === 'ModuleDecl') {
             currentModule = d.name
+            last = null
+          } else if (d.kind === 'EnumDecl') {
+            // no runtime binding needed for enum decls in MVP
             last = null
           } else if (d.kind === 'ActorDecl') {
             const key = currentModule ? `${currentModule}.${d.name}` : d.name
@@ -180,6 +196,10 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string> }): RunRe
           return (callee as any)(...args)
         }
         return `(not-callable ${String(callee)})`
+      }
+      case 'Ctor': {
+        const values = e.args.map(evalExpr)
+        return { $: e.name, values }
       }
       case 'Spawn': {
         const key = e.actorName

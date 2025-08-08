@@ -114,6 +114,10 @@ function parseExprRD(src: string): Expr {
             return { kind: 'EffectCall', sid: sid('eff'), effect: head as any, op, args }
           }
         }
+        // ADT constructor if starts with uppercase and is unqualified
+        if (/^[A-Z]/.test(name) && !name.includes('.')) {
+          return { kind: 'Ctor', sid: sid('ctor'), name, args } as any
+        }
         // spawn as expression: spawn Name -> treat as Call to builtin spawn
         if (name === 'spawn' && args.length === 1 && args[0].kind === 'Var') {
           return { kind: 'Spawn', sid: sid('spawn'), actorName: (args[0] as any).name } as any
@@ -171,6 +175,22 @@ export function parse(source: string): Expr {
       const m = ln.match(/^import\s+"([^"]+)"$/)
       if (m) {
         decls.push({ kind: 'ImportDecl', sid: sid('import'), path: m[1] } as any)
+        continue
+      }
+    }
+    if (ln.startsWith('enum ')) {
+      // enum Name = A | B(Int, Text)
+      const m = ln.match(/^enum\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/)
+      if (m) {
+        const name = m[1]
+        const rhs = m[2]
+        const variants = rhs.split('|').map(s => s.trim()).filter(Boolean).map(v => {
+          const mm = v.match(/^([A-Za-z_][A-Za-z0-9_]*)(?:\(([^)]*)\))?$/)
+          const vname = mm?.[1] || v
+          const params = (mm?.[2] || '').trim() ? (mm![2].split(',').map(x => x.trim()).filter(Boolean)) : []
+          return { name: vname, params }
+        })
+        decls.push({ kind: 'EnumDecl', sid: sid('enum'), name, variants } as any)
         continue
       }
     }
