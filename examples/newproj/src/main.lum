@@ -1,3 +1,12 @@
 let greeting = "Hello from LUMEN"
 fn main() = greeting
 let tmp_2 = main()
+
+schema User {
+  id: Int
+  name: Text
+}
+
+store users : User = "./examples/newproj/users.json"
+
+query active from users where id + 0 select id, name

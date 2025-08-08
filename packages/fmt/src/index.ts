@@ -22,6 +22,19 @@ function formatOne(node: Expr): string {
       const rhs = node.variants.map((v: any) => v.params && v.params.length > 0 ? `${v.name}(${v.params.join(', ')})` : v.name).join(' | ')
       return `enum ${node.name} = ${rhs}`
     }
+    case 'SchemaDecl': {
+      const fields = Object.entries(node.fields).map(([k,v]) => `  ${k}: ${v}`).join('\n')
+      return `schema ${node.name} {\n${fields}\n}`
+    }
+    case 'StoreDecl': {
+      const cfg = node.config ? ` = ${JSON.stringify(node.config)}` : ''
+      return `store ${node.name} : ${node.schema}${cfg}`
+    }
+    case 'QueryDecl': {
+      const where = node.predicate ? ` where ${formatOne(node.predicate)}` : ''
+      const select = node.projection && node.projection.length ? ` select ${node.projection.join(', ')}` : ''
+      return `query ${node.name} from ${node.source}${where}${select}`
+    }
     case 'Assign':
       return `${node.name} = ${formatOne(node.expr)}`
     case 'Fn': {

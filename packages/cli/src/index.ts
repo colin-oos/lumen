@@ -463,6 +463,8 @@ function checkTypesProject(files: Array<{ path: string, ast: any }>): { errors: 
   const adtCtors = new Map<string, { enumName: string, params: Type }[]>()
   const ctorToEnum = new Map<string, { enumName: string, params: Type[] }>()
   const enumToVariants = new Map<string, Array<{ name: string }>>()
+  const schemas = new Map<string, Record<string, string>>()
+  const stores = new Map<string, { schema: string, path: string }>()
   function parseTypeName(t?: string): Type {
     if (!t) return 'Unknown'
     if (t === 'Int') return 'Int'
@@ -493,6 +495,8 @@ function checkTypesProject(files: Array<{ path: string, ast: any }>): { errors: 
           ctorToEnum.set(v.name, { enumName: d.name, params })
         }
       }
+      if (d.kind === 'SchemaDecl') schemas.set(d.name, d.fields)
+      if (d.kind === 'StoreDecl') stores.set(d.name, { schema: d.schema, path: f.path })
     }
   }
   // Second pass: check bodies
@@ -601,7 +605,27 @@ function checkTypesProject(files: Array<{ path: string, ast: any }>): { errors: 
   for (const f of files) {
     const env = new Map<string, Type>()
     if (f.ast.kind !== 'Program') continue
-    for (const d of f.ast.decls) checkExpr(d, env, f.path)
+    for (const d of f.ast.decls) {
+      if (d.kind === 'QueryDecl') {
+        const store = stores.get(d.source)
+        if (!store) errors.push(`${f.path}: query ${d.name} references unknown store ${d.source}`)
+        const schema = store ? schemas.get(store.schema) : null
+        if (!schema) {
+          if (store) errors.push(`${f.path}: query ${d.name} references store ${d.source} with unknown schema ${store.schema}`)
+        } else {
+          // validate projection fields
+          const proj = (d.projection || []) as string[]
+          for (const p of proj) if (!(p in schema)) errors.push(`${f.path}: query ${d.name} selects unknown field ${p}`)
+          // basic predicate variable usage: allow only field names and literals/operators
+          if (d.predicate) {
+            const ok = validatePredicateUses(d.predicate, schema)
+            if (!ok) errors.push(`${f.path}: query ${d.name} where-clause references unknown fields`)
+          }
+        }
+      } else {
+        checkExpr(d, env, f.path)
+      }
+    }
     // Exhaustiveness for handler-style actors when patterns are constructors of same enum
     for (const d of f.ast.decls) {
       if (d.kind === 'ActorDeclNew') {
@@ -632,6 +656,20 @@ function checkTypesProject(files: Array<{ path: string, ast: any }>): { errors: 
         }
       }
     }
+  }
+  function validatePredicateUses(expr: any, schema: Record<string,string>): boolean {
+    let ok = true
+    const visit = (e: any) => {
+      if (!e || typeof e !== 'object') return
+      if (e.kind === 'Var') { if (!(e.name in schema)) ok = false; return }
+      for (const k of Object.keys(e)) {
+        const v = (e as any)[k]
+        if (v && typeof v === 'object' && 'kind' in v) visit(v)
+        if (Array.isArray(v)) for (const it of v) if (it && typeof it === 'object' && 'kind' in it) visit(it)
+      }
+    }
+    visit(expr)
+    return ok
   }
   return { errors }
 }
