@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.run = run;
+const sqlite_1 = require("./adapters/sqlite");
 function run(ast, options) {
     const trace = [];
     const env = new Map();
@@ -340,10 +341,8 @@ function run(ast, options) {
                     if (e.op === 'load') {
                         try {
                             const p = String(args[0]);
-                            if (p.startsWith('sqlite:')) {
-                                // Placeholder deterministic mock for SQLite adapter
-                                return [{ id: 1, name: 'Ada' }, { id: 2, name: 'Linus' }];
-                            }
+                            if ((0, sqlite_1.isSqliteConfig)(p))
+                                return (0, sqlite_1.loadSqlite)(p);
                             const raw = require('fs').readFileSync(p, 'utf8');
                             return JSON.parse(raw);
                         }
