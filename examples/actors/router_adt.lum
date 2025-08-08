@@ -1,0 +1,22 @@
+enum Msg = Inc | Add(Int) | Get
+actor WorkerA {
+  on Inc() -> io.print("A:inc")
+  on Add(1) -> io.print("A:add1")
+  on Get() reply Int -> 1
+}
+actor WorkerB {
+  on Inc() -> io.print("B:inc")
+  on Add(1) -> io.print("B:add1")
+  on Get() reply Int -> 2
+}
+actor Router {
+  state a: Int = 0
+  on Inc() -> io.print("route:inc")
+  on Add(1) -> io.print("route:add1")
+  on Get() reply Int -> 0
+}
+let r = spawn Router
+send r Inc()
+send r Add(1)
+let v = ask r Get()
+let tmp_8 = io.print(v)
