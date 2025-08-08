@@ -63,6 +63,17 @@ async function main() {
     })
     return
   }
+  if (cmd === 'emit') {
+    const entry = resolved
+    const ast = loadWithImports(entry)
+    if (rest.includes('--ts')) {
+      const out = emitTypes(ast)
+      console.log(out)
+      return
+    }
+    console.log('usage: lumen emit <file> --ts')
+    return
+  }
   if (cmd === 'cache') {
     const action = (rest[0] || '').toLowerCase()
     const cacheDir = path.resolve(process.cwd(), '.lumen-cache')
@@ -294,6 +305,49 @@ async function main() {
 }
 
 main().catch(e => { console.error(e); process.exit(1) })
+
+function emitTypes(ast: any): string {
+  if (ast.kind !== 'Program') return ''
+  const lines: string[] = []
+  const enumToCtors = new Map<string, Array<{ name: string, params: string[] }>>()
+  const schemaMap = new Map<string, Record<string, string>>()
+  const storeToSchema = new Map<string, string>()
+  function tsType(t?: string): string {
+    if (!t) return 'unknown'
+    if (t === 'Int') return 'number'
+    if (t === 'Text') return 'string'
+    if (t === 'Bool') return 'boolean'
+    if (t === 'Unit') return 'null'
+    return 'unknown'
+  }
+  for (const d of ast.decls) {
+    if (d.kind === 'EnumDecl') enumToCtors.set(d.name, d.variants)
+    if (d.kind === 'SchemaDecl') schemaMap.set(d.name, d.fields)
+    if (d.kind === 'StoreDecl') storeToSchema.set(d.name, d.schema)
+  }
+  for (const [name, variants] of enumToCtors) {
+    const parts = variants.map(v => `{ $: '${v.name}', values: [${(v.params || []).map(tsType).join(', ')}] }`)
+    lines.push(`type ${name} = ${parts.join(' | ')}`)
+  }
+  for (const [name, fields] of schemaMap) {
+    const body = Object.entries(fields).map(([k, v]) => `  ${k}: ${tsType(v)}`).join('\n')
+    lines.push(`interface ${name} {\n${body}\n}`)
+  }
+  for (const d of ast.decls) {
+    if (d.kind === 'QueryDecl') {
+      const srcSchemaName = storeToSchema.get(d.source)
+      if (!srcSchemaName) continue
+      const proj = d.projection || []
+      if (proj.length > 0) {
+        const keys = proj.map((p: string) => `'${p}'`).join(' | ')
+        lines.push(`type ${d.name} = Array<Pick<${srcSchemaName}, ${keys}>>`)
+      } else {
+        lines.push(`type ${d.name} = Array<${srcSchemaName}>`)
+      }
+    }
+  }
+  return lines.join('\n\n') + '\n'
+}
 
 function hoverInfo(ast: any, symbol: string): any {
   const lastSeg = symbol.includes('.') ? symbol.split('.').pop() as string : symbol
