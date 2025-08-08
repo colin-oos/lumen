@@ -39,10 +39,18 @@ function usage() {
 `);
 }
 async function main() {
-    const [, , cmd, target, ...rest] = process.argv;
-    if (!cmd || !target) {
+    let [, , cmd, target, ...rest] = process.argv;
+    if (!cmd) {
         usage();
         process.exit(1);
+    }
+    if (!target) {
+        if (cmd === 'serve' || cmd === 'cache')
+            target = '.';
+        else {
+            usage();
+            process.exit(1);
+        }
     }
     const resolved = path_1.default.resolve(target);
     const isDir = fs_1.default.existsSync(resolved) && fs_1.default.lstatSync(resolved).isDirectory();

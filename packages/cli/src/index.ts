@@ -35,8 +35,12 @@ function usage() {
 }
 
 async function main() {
-  const [,, cmd, target, ...rest] = process.argv
-  if (!cmd || !target) { usage(); process.exit(1) }
+  let [,, cmd, target, ...rest] = process.argv
+  if (!cmd) { usage(); process.exit(1) }
+  if (!target) {
+    if (cmd === 'serve' || cmd === 'cache') target = '.'
+    else { usage(); process.exit(1) }
+  }
   const resolved = path.resolve(target)
   const isDir = fs.existsSync(resolved) && fs.lstatSync(resolved).isDirectory()
   const write = rest.includes('--write')
