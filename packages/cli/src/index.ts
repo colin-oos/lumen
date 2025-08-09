@@ -76,6 +76,44 @@ async function main() {
     console.log('usage: lumen emit <file> --ts')
     return
   }
+  if (cmd === 'apply') {
+    // Apply a simple EditScript by SID across .lum files recursively from CWD
+    const jsonPath = resolved
+    if (!fs.existsSync(jsonPath)) { console.error('apply: JSON file not found'); process.exit(1) }
+    const spec = JSON.parse(fs.readFileSync(jsonPath, 'utf8')) as { targetSid: string, newBody: string }
+    if (!spec || !spec.targetSid || typeof spec.newBody !== 'string') { console.error('apply: invalid spec (expected { targetSid, newBody })'); process.exit(1) }
+    const files = collectLumFiles(process.cwd(), true)
+    let applied = false
+    for (const f of files) {
+      const src = fs.readFileSync(f, 'utf8')
+      const ast = parse(src)
+      assignStableSids(ast)
+      let changed = false
+      function rewrite(e: any): void {
+        if (!e || typeof e !== 'object') return
+        if (e.kind === 'Fn' && e.sid === spec.targetSid) {
+          e.body = parse(spec.newBody)
+          assignStableSids(e.body)
+          changed = true
+        }
+        for (const k of Object.keys(e)) {
+          const v = (e as any)[k]
+          if (v && typeof v === 'object' && 'kind' in v) rewrite(v)
+          if (Array.isArray(v)) for (const it of v) if (it && typeof it === 'object' && 'kind' in it) rewrite(it)
+        }
+      }
+      rewrite(ast)
+      if (changed) {
+        const out = format(ast)
+        fs.writeFileSync(f, out, 'utf8')
+        applied = true
+        break
+      }
+    }
+    if (!applied) { console.error('apply: targetSid not found'); process.exit(2) }
+    console.log('apply OK')
+    return
+  }
   if (cmd === 'cache') {
     const action = (rest[0] || '').toLowerCase()
     const cacheDir = path.resolve(process.cwd(), '.lumen-cache')
@@ -288,6 +326,32 @@ async function main() {
   }
   if (cmd === 'check') {
     // Collect files: if a single file, include its transitive imports; if a dir, traverse dir
+    const sidSnapIdx = rest.indexOf('--sid-snapshot')
+    if (sidSnapIdx >= 0) {
+      const snapPath = rest[sidSnapIdx + 1] ? path.resolve(rest[sidSnapIdx + 1]) : process.cwd()
+      const files = fs.lstatSync(snapPath).isDirectory() ? collectLumFiles(snapPath, true) : [snapPath]
+      const nodes: Array<{ sid: string, kind: string, name?: string, file: string }> = []
+      for (const f of files) {
+        const src = fs.readFileSync(f, 'utf8')
+        const ast = parse(src)
+        assignStableSids(ast)
+        function collect(e: any): void {
+          if (!e || typeof e !== 'object') return
+          // collect SIDs for top-level decls
+          if (e.kind === 'Fn' || e.kind === 'ActorDecl' || e.kind === 'ActorDeclNew' || e.kind === 'EnumDecl' || e.kind === 'QueryDecl' || e.kind === 'StoreDecl' || e.kind === 'SchemaDecl') {
+            nodes.push({ sid: e.sid, kind: e.kind, name: e.name ?? undefined, file: f })
+          }
+          for (const k of Object.keys(e)) {
+            const v = (e as any)[k]
+            if (v && typeof v === 'object' && 'kind' in v) collect(v)
+            if (Array.isArray(v)) for (const it of v) if (it && typeof it === 'object' && 'kind' in it) collect(it)
+          }
+        }
+        collect(ast)
+      }
+      console.log(JSON.stringify({ nodes }, null, 2))
+      return
+    }
     const files = isDir
       ? collectLumFiles(resolved, recursive)
       : Array.from(new Set([resolved, ...collectImportsTransitive(resolved)]))
