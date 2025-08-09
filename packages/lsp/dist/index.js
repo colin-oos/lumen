@@ -14,10 +14,14 @@ function getDiagnostics(source) {
             return 'Unknown';
         if (t === 'Int')
             return 'Int';
+        if (t === 'Float')
+            return 'Float';
         if (t === 'Text')
             return 'Text';
         if (t === 'Bool')
             return 'Bool';
+        if (t === 'Unit')
+            return 'Unit';
         if (enumNames.has(t))
             return `ADT:${t}`;
         return 'Unknown';
@@ -34,6 +38,7 @@ function getDiagnostics(source) {
         function checkExpr(e, env) {
             switch (e.kind) {
                 case 'LitNum': return 'Int';
+                case 'LitFloat': return 'Float';
                 case 'LitText': return 'Text';
                 case 'LitBool': return 'Bool';
                 case 'Var': return env.get(e.name) ?? 'Unknown';
@@ -43,12 +48,46 @@ function getDiagnostics(source) {
                         return 'Unknown';
                     return `ADT:${meta.enumName}`;
                 }
+                case 'Unary': {
+                    const t = checkExpr(e.expr, env);
+                    if (e.op === 'not') {
+                        if (t !== 'Bool' && t !== 'Unknown')
+                            errors.push(`unary not expects Bool, got ${t}`);
+                        return 'Bool';
+                    }
+                    if (e.op === 'neg') {
+                        if ((t !== 'Int' && t !== 'Float') && t !== 'Unknown')
+                            errors.push(`unary - expects numeric, got ${t}`);
+                        return t;
+                    }
+                    return 'Unknown';
+                }
                 case 'Binary': {
                     const lt = checkExpr(e.left, env);
                     const rt = checkExpr(e.right, env);
-                    if ((lt !== 'Int' || rt !== 'Int') && (lt !== 'Unknown' && rt !== 'Unknown'))
-                        errors.push(`binary ${e.op} expects Int, got ${lt} and ${rt}`);
-                    return 'Int';
+                    const numericOps = ['+', '-', '*', '/', '%'];
+                    const cmpOps = ['==', '!=', '<', '<=', '>', '>='];
+                    const boolOps = ['and', 'or'];
+                    if (numericOps.includes(e.op)) {
+                        if ((lt !== 'Int' && lt !== 'Float') || (rt !== 'Int' && rt !== 'Float')) {
+                            if (lt !== 'Unknown' && rt !== 'Unknown')
+                                errors.push(`binary ${e.op} expects numeric, got ${lt} and ${rt}`);
+                        }
+                        return (lt === 'Float' || rt === 'Float') ? 'Float' : 'Int';
+                    }
+                    if (cmpOps.includes(e.op)) {
+                        if (lt !== rt && lt !== 'Unknown' && rt !== 'Unknown') {
+                            if (!((lt === 'Int' && rt === 'Float') || (lt === 'Float' && rt === 'Int')))
+                                errors.push(`comparison ${e.op} between ${lt} and ${rt}`);
+                        }
+                        return 'Bool';
+                    }
+                    if (boolOps.includes(e.op)) {
+                        if ((lt !== 'Bool' || rt !== 'Bool') && (lt !== 'Unknown' && rt !== 'Unknown'))
+                            errors.push(`boolean ${e.op} expects Bool, got ${lt} and ${rt}`);
+                        return 'Bool';
+                    }
+                    return 'Unknown';
                 }
                 case 'Let': {
                     const t = checkExpr(e.expr, env);
@@ -63,7 +102,7 @@ function getDiagnostics(source) {
                     let baseType = null;
                     for (const c of e.cases) {
                         const bt = checkExpr(c.body, env);
-                        if (bt === 'Int' || bt === 'Text' || bt === 'Bool' || bt === 'Unit')
+                        if (bt === 'Int' || bt === 'Float' || bt === 'Text' || bt === 'Bool' || bt === 'Unit')
                             baseType = baseType === null ? bt : (baseType === bt ? bt : 'Unknown');
                         else if (typeof bt === 'string' && bt.startsWith('ADT:'))
                             enumName = enumName ?? bt.slice(4);
@@ -72,6 +111,18 @@ function getDiagnostics(source) {
                         return `ADT:${enumName}`;
                     if (baseType && baseType !== 'Unknown')
                         return baseType;
+                    return 'Unknown';
+                }
+                case 'If': {
+                    const ct = checkExpr(e.cond, env);
+                    if (ct !== 'Bool' && ct !== 'Unknown')
+                        errors.push(`if condition must be Bool, got ${ct}`);
+                    const tt = checkExpr(e.then, env);
+                    const et = checkExpr(e.else, env);
+                    if (tt === et)
+                        return tt;
+                    if ((tt === 'Int' && et === 'Float') || (tt === 'Float' && et === 'Int'))
+                        return 'Float';
                     return 'Unknown';
                 }
                 case 'Fn': {

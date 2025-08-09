@@ -11,12 +11,14 @@ export function format(ast: Expr): string {
 function formatOne(node: Expr): string {
   switch (node.kind) {
     case 'ImportDecl':
-      return `import "${node.path}"`
+      if ((node as any).name) return `import ${(node as any).name}${(node as any).alias ? ` as ${(node as any).alias}` : ''}`
+      return `import "${(node as any).path}"`
     case 'ModuleDecl':
       return `module ${node.name}`
     case 'Let': {
       const type = node.type ? `: ${node.type}` : ''
-      return `let ${node.name}${type} = ${formatOne(node.expr)}`
+      const kw = (node as any).mutable ? 'mut' : 'let'
+      return `${kw} ${node.name}${type} = ${formatOne(node.expr)}`
     }
     case 'EnumDecl': {
       const rhs = node.variants.map((v: any) => v.params && v.params.length > 0 ? `${v.name}(${v.params.join(', ')})` : v.name).join(' | ')
@@ -47,6 +49,8 @@ function formatOne(node: Expr): string {
     }
     case 'LitText':
       return JSON.stringify(node.value)
+    case 'LitFloat':
+      return String(node.value)
     case 'LitNum':
       return String(node.value)
     case 'LitBool':
@@ -87,13 +91,22 @@ function formatOne(node: Expr): string {
       return `send ${formatOne(node.actor)} ${formatOne(node.message)}`
     case 'Ask':
       return `ask ${formatOne(node.actor)} ${formatOne(node.message)}`
+    case 'Unary': {
+      const arg = formatOne(node.expr)
+      return node.op === 'not' ? `not ${arg}` : `-${arg}`
+    }
     case 'Binary': {
       const left = formatOne(node.left)
       const right = formatOne(node.right)
       return `${left} ${node.op} ${right}`
     }
+    case 'If': {
+      return `if ${formatOne(node.cond)} then ${formatOne(node.then)} else ${formatOne(node.else)}`
+    }
     case 'Block':
       return `{ ${node.stmts.map(s => `${formatOne(s)};`).join(' ')} }`
+    case 'PatternOr':
+      return `${formatOne(node.left)} | ${formatOne(node.right)}`
     case 'Match': {
       const cases = node.cases.map((c: any) => {
         const guard = c.guard ? ` if ${formatOne(c.guard)}` : ''

@@ -1,20 +1,52 @@
 import { Expr, sid } from '@lumen/core-ir'
 
-// Very small hand-rolled parser for:
-// - let <name> = <literal|identifier>
-// - fn <name>(<params,...>) = <identifier|literal>
-// - bare identifier or literal as a statement
-// Literals: number, boolean, text in double quotes
+// Very small hand-rolled parser upgraded to support:
+// - comments: //, ///, /* */ (no nesting)
+// - numbers: ints, floats, underscores
+// - strings with escapes \" \n \t \\
+// - if-then-else expressions
+// - unary: not, unary -
+// - binary ops with precedence: * / %  |  + -  |  comparisons  |  and or
+// - match with optional 'case' keyword and guards
+// - tuple [a,b], record { k: v }
+// - let/mut, fn, actor, import (path or name with optional alias)
 
-function parseLiteral(tok: string): Expr | null {
-  if (/^\d+(?:\.\d+)?$/.test(tok)) return { kind: 'LitNum', sid: sid('lit'), value: Number(tok) }
-  if (tok === 'true' || tok === 'false') return { kind: 'LitBool', sid: sid('lit'), value: tok === 'true' }
-  const stringMatch = tok.match(/^"([\s\S]*)"$/)
-  if (stringMatch) return { kind: 'LitText', sid: sid('lit'), value: stringMatch[1] }
-  return null
+function stripComments(src: string): string {
+  // remove block comments
+  let out = src.replace(/\/\*[\s\S]*?\*\//g, '')
+  // remove doc comments /// and line comments //
+  out = out.split('\n').map(line => {
+    if (line.trim().startsWith('///')) return ''
+    const idx = line.indexOf('//')
+    if (idx >= 0) return line.slice(0, idx)
+    return line
+  }).join('\n')
+  return out
 }
 
-// Recursive descent parser for expressions with + and * and calls
+// Parse a pattern string into an Expr, supporting top-level OR `|` combinations
+function parsePattern(src: string): Expr {
+  let depth = 0
+  const parts: string[] = []
+  let buf = ''
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i]
+    if (ch === '(' || ch === '[' || ch === '{') depth++
+    else if (ch === ')' || ch === ']' || ch === '}') depth--
+    else if (ch === '|' && depth === 0) { parts.push(buf.trim()); buf = ''; continue }
+    buf += ch
+  }
+  if (buf.trim().length > 0) parts.push(buf.trim())
+  if (parts.length === 1) return parseExprRD(parts[0])
+  let node: Expr | null = null
+  for (const p of parts) {
+    const e = parseExprRD(p)
+    if (!node) node = e
+    else node = { kind: 'PatternOr', sid: sid('por'), left: node, right: e } as any
+  }
+  return node as Expr
+}
+
 class Lexer {
   i = 0
   constructor(public s: string) {}
@@ -22,10 +54,17 @@ class Lexer {
   next(): string { return this.s[this.i++] ?? '' }
   eatWs() { while (/\s/.test(this.peek())) this.next() }
   eof(): boolean { return this.i >= this.s.length }
+  eatKeyword(word: string): boolean {
+    this.eatWs()
+    if (this.s.slice(this.i, this.i + word.length) === word) {
+      const after = this.s[this.i + word.length] || ' '
+      if (!/[A-Za-z0-9_]/.test(after)) { this.i += word.length; return true }
+    }
+    return false
+  }
 }
 
 function parseExprRD(src: string): Expr {
-  // quick patterns before lexing
   const assignMatch = src.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/)
   if (assignMatch) {
     return { kind: 'Assign', sid: sid('assign'), name: assignMatch[1], expr: parseExprRD(assignMatch[2]) } as any
@@ -45,19 +84,60 @@ function parseExprRD(src: string): Expr {
   const lx = new Lexer(src)
   lx.eatWs()
   const builtinEffects = new Set(['io','fs','net','db','time','nondet','gpu','unchecked','http'])
+
+  function parseString(): Expr {
+    // assumes current peek is '"'
+    lx.next() // consume opening
+    let v = ''
+    while (!lx.eof()) {
+      const ch = lx.next()
+      if (ch === '"') break
+      if (ch === '\\') {
+        const n = lx.next()
+        if (n === 'n') v += '\n'
+        else if (n === 't') v += '\t'
+        else if (n === '"') v += '"'
+        else if (n === '\\') v += '\\'
+        else v += n
+      } else v += ch
+    }
+    return { kind: 'LitText', sid: sid('lit'), value: v }
+  }
+
+  function parseNumber(): Expr {
+    let raw = ''
+    let sawDot = false
+    while (/[0-9_\.]/.test(lx.peek())) {
+      const ch = lx.next()
+      if (ch === '.') sawDot = true
+      raw += ch
+    }
+    const cleaned = raw.replace(/_/g, '')
+    if (sawDot) return { kind: 'LitFloat', sid: sid('lit'), value: Number(cleaned) } as any
+    return { kind: 'LitNum', sid: sid('lit'), value: Number(cleaned) }
+  }
+
   function parsePrimary(): Expr {
     lx.eatWs()
-    // expression-level match: match <expr> { pat -> expr; ... }
+    // if-expr: if cond then expr else expr
+    if (lx.eatKeyword('if')) {
+      const cond = parseOr()
+      if (!lx.eatKeyword('then')) return { kind: 'LitText', sid: sid('lit'), value: '(parse error: expected then)' }
+      const thenE = parseOr()
+      if (!lx.eatKeyword('else')) return { kind: 'LitText', sid: sid('lit'), value: '(parse error: expected else)' }
+      const elseE = parseOr()
+      return { kind: 'If', sid: sid('if'), cond, then: thenE, else: elseE } as any
+    }
+    // expression-level match: match <expr> { case pat [if g] -> expr; ... }
     if (lx.s.slice(lx['i'], lx['i'] + 5) === 'match' && /\b/.test(lx.s[lx['i'] + 5] || ' ')) {
       lx['i'] += 5
       lx.eatWs()
-      const scr = parseAdd()
+      const scr = parseOr()
       lx.eatWs()
       if (lx.peek() === '{') {
         lx.next()
         const cases: any[] = []
         while (!lx.eof() && lx.peek() !== '}') {
-          // read until ';' or '}'
           let depth = 0
           let buf = ''
           while (!lx.eof()) {
@@ -69,11 +149,12 @@ function parseExprRD(src: string): Expr {
           }
           const stmt = buf.trim()
           if (stmt.length > 0) {
-            let cm = stmt.match(/^(.+?)\s+if\s+(.+?)\s*->\s*(.+)$/)
-            if (cm) cases.push({ pattern: parseExprRD(cm[1]), guard: parseExprRD(cm[2]), body: parseExprRD(cm[3]) })
+            const trimmed = stmt.startsWith('case ') ? stmt.slice(5).trim() : stmt
+            let cm = trimmed.match(/^(.+?)\s+if\s+(.+?)\s*->\s*(.+)$/)
+            if (cm) cases.push({ pattern: parsePattern(cm[1]), guard: parseExprRD(cm[2]), body: parseExprRD(cm[3]) })
             else {
-              cm = stmt.match(/^(.+?)\s*->\s*(.+)$/)
-              if (cm) cases.push({ pattern: parseExprRD(cm[1]), body: parseExprRD(cm[2]) })
+              cm = trimmed.match(/^(.+?)\s*->\s*(.+)$/)
+              if (cm) cases.push({ pattern: parsePattern(cm[1]), body: parseExprRD(cm[2]) })
             }
           }
           lx.eatWs()
@@ -82,21 +163,11 @@ function parseExprRD(src: string): Expr {
         return { kind: 'Match', sid: sid('match'), scrutinee: scr, cases } as any
       }
     }
-    if (lx.peek() === '"') {
-      lx.next()
-      let v = ''
-      while (!lx.eof() && lx.peek() !== '"') v += lx.next()
-      if (lx.peek() === '"') lx.next()
-      return { kind: 'LitText', sid: sid('lit'), value: v }
-    }
-    if (/[0-9]/.test(lx.peek())) {
-      let n = ''
-      while (/[0-9.]/.test(lx.peek())) n += lx.next()
-      return { kind: 'LitNum', sid: sid('lit'), value: Number(n) }
-    }
+    if (lx.peek() === '"') return parseString()
+    if (/[0-9]/.test(lx.peek())) return parseNumber()
     if (lx.s.slice(lx['i'], lx['i'] + 4) === 'true') { lx['i'] += 4; return { kind: 'LitBool', sid: sid('lit'), value: true } }
     if (lx.s.slice(lx['i'], lx['i'] + 5) === 'false') { lx['i'] += 5; return { kind: 'LitBool', sid: sid('lit'), value: false } }
-    if (lx.peek() === '(') { lx.next(); const e = parseAdd(); lx.eatWs(); if (lx.peek() === ')') lx.next(); return e }
+    if (lx.peek() === '(') { lx.next(); const e = parseOr(); lx.eatWs(); if (lx.peek() === ')') lx.next(); return e }
     if (lx.peek() === '{') {
       // Decide between RecordLit and Block by scanning ahead for ':' vs ';'
       let j = lx['i'] + 1
@@ -114,7 +185,6 @@ function parseExprRD(src: string): Expr {
         j++
       }
       if (sawColon && !sawSemicolon) {
-        // Parse as RecordLit: { key: expr, key2: expr }
         lx.next()
         const fields: Array<{ name: string, expr: Expr }> = []
         lx.eatWs()
@@ -123,7 +193,7 @@ function parseExprRD(src: string): Expr {
             lx.eatWs(); let key = ''
             while (/[A-Za-z_]/.test(lx.peek())) key += lx.next()
             lx.eatWs(); if (lx.peek() === ':') lx.next(); lx.eatWs()
-            const value = parseAdd(); fields.push({ name: key, expr: value })
+            const value = parseOr(); fields.push({ name: key, expr: value })
             lx.eatWs(); if (lx.peek() === ',') { lx.next(); lx.eatWs(); continue }
             break
           }
@@ -135,7 +205,6 @@ function parseExprRD(src: string): Expr {
         lx.next()
         const stmts: Expr[] = []
         while (!lx.eof() && lx.peek() !== '}') {
-          // read until ';' or '}'
           let depth2 = 0
           let buf = ''
           while (!lx.eof()) {
@@ -153,39 +222,27 @@ function parseExprRD(src: string): Expr {
         return { kind: 'Block', sid: sid('block'), stmts }
       }
     }
-    // tuple or record literal shorthand
     if (lx.peek() === '[') {
-      // allow [a, b] as tuple (alt syntax)
       lx.next(); const elements: Expr[] = []
       lx.eatWs(); if (lx.peek() !== ']') {
-        while (true) { const el = parseAdd(); elements.push(el); lx.eatWs(); if (lx.peek() === ',') { lx.next(); lx.eatWs(); continue } break }
+        while (true) { const el = parseOr(); elements.push(el); lx.eatWs(); if (lx.peek() === ',') { lx.next(); lx.eatWs(); continue } break }
       }
       if (lx.peek() === ']') lx.next()
       return { kind: 'TupleLit', sid: sid('tuple'), elements }
     }
-    // note: record literal handled above in '{' case
     // identifier (possibly qualified with dots) or call
     let name = ''
     if (/[A-Za-z_]/.test(lx.peek())) {
       while (/[A-Za-z0-9_]/.test(lx.peek())) name += lx.next()
       // allow qualified: foo.bar.baz
-      while (lx.peek() === '.') {
-        name += lx.next()
-        while (/[A-Za-z0-9_]/.test(lx.peek())) name += lx.next()
-      }
+      while (lx.peek() === '.') { name += lx.next(); while (/[A-Za-z0-9_]/.test(lx.peek())) name += lx.next() }
       lx.eatWs()
       if (lx.peek() === '(') {
         lx.next()
         const args: Expr[] = []
         lx.eatWs()
         if (lx.peek() !== ')') {
-          while (true) {
-            const arg = parseAdd()
-            args.push(arg)
-            lx.eatWs()
-            if (lx.peek() === ',') { lx.next(); lx.eatWs(); continue }
-            break
-          }
+          while (true) { const arg = parseOr(); args.push(arg); lx.eatWs(); if (lx.peek() === ',') { lx.next(); lx.eatWs(); continue } break }
         }
         if (lx.peek() === ')') lx.next()
         // Effect call if first segment is a builtin effect
@@ -193,20 +250,11 @@ function parseExprRD(src: string): Expr {
         if (dotIdx > 0) {
           const head = name.slice(0, dotIdx)
           const op = name.slice(dotIdx + 1)
-          if (builtinEffects.has(head)) {
-            return { kind: 'EffectCall', sid: sid('eff'), effect: head as any, op, args }
-          }
+          if (builtinEffects.has(head)) return { kind: 'EffectCall', sid: sid('eff'), effect: head as any, op, args }
         }
-        // ADT constructor if the final segment starts with uppercase (qualified allowed)
         const lastSeg = name.includes('.') ? name.split('.').pop() || '' : name
-        if (/^[A-Z]/.test(lastSeg)) {
-          return { kind: 'Ctor', sid: sid('ctor'), name, args } as any
-        }
-        // spawn as expression: spawn Name -> treat as Call to builtin spawn
-        if (name === 'spawn' && args.length === 1 && args[0].kind === 'Var') {
-          return { kind: 'Spawn', sid: sid('spawn'), actorName: (args[0] as any).name } as any
-        }
-        // ask as expression: ask actor, msg OR ask actor msg (optional comma)
+        if (/^[A-Z]/.test(lastSeg)) return { kind: 'Ctor', sid: sid('ctor'), name, args } as any
+        if (name === 'spawn' && args.length === 1 && args[0].kind === 'Var') return { kind: 'Spawn', sid: sid('spawn'), actorName: (args[0] as any).name } as any
         if (name === 'ask' && (args.length === 2 || args.length === 3)) {
           const timeout = args.length === 3 && args[2].kind === 'LitNum' ? (args[2] as any).value : undefined
           return { kind: 'Ask', sid: sid('ask'), actor: args[0], message: args[1], timeoutMs: timeout } as any
@@ -215,17 +263,24 @@ function parseExprRD(src: string): Expr {
       }
       return { kind: 'Var', sid: sid('var'), name }
     }
-    // fallback empty string literal
     return { kind: 'LitText', sid: sid('lit'), value: '' }
   }
+
+  function parseUnary(): Expr {
+    lx.eatWs()
+    if (lx.eatKeyword('not')) return { kind: 'Unary', sid: sid('un'), op: 'not', expr: parseUnary() } as any
+    if (lx.peek() === '-') { lx.next(); return { kind: 'Unary', sid: sid('un'), op: 'neg', expr: parseUnary() } as any }
+    return parsePrimary()
+  }
   function parseMul(): Expr {
-    let left = parsePrimary()
+    let left = parseUnary()
     while (true) {
       lx.eatWs()
-      if (lx.peek() === '*' || lx.peek() === '/') {
-        const op = lx.next() as '*' | '/'
-        const right = parsePrimary()
-        left = { kind: 'Binary', sid: sid('bin'), op, left, right }
+      const ch = lx.peek()
+      if (ch === '*' || ch === '/' || ch === '%') {
+        const op = lx.next() as '*' | '/' | '%'
+        const right = parseUnary()
+        left = { kind: 'Binary', sid: sid('bin'), op, left, right } as any
       } else break
     }
     return left
@@ -234,21 +289,58 @@ function parseExprRD(src: string): Expr {
     let left = parseMul()
     while (true) {
       lx.eatWs()
-      if (lx.peek() === '+' || lx.peek() === '-') {
+      const ch = lx.peek()
+      if (ch === '+' || ch === '-') {
         const op = lx.next() as '+' | '-'
         const right = parseMul()
-        left = { kind: 'Binary', sid: sid('bin'), op, left, right }
+        left = { kind: 'Binary', sid: sid('bin'), op, left, right } as any
       } else break
     }
     return left
   }
-  const expr = parseAdd()
+  function parseCompare(): Expr {
+    let left = parseAdd()
+    while (true) {
+      lx.eatWs()
+      const two = lx.s.slice(lx['i'], lx['i'] + 2)
+      const one = lx.s.slice(lx['i'], lx['i'] + 1)
+      let op: string | null = null
+      if (two === '==' || two === '!=' || two === '<=' || two === '>=') { op = two; lx['i'] += 2 }
+      else if (one === '<' || one === '>') { op = one; lx['i'] += 1 }
+      if (op) {
+        const right = parseAdd()
+        left = { kind: 'Binary', sid: sid('bin'), op: op as any, left, right } as any
+      } else break
+    }
+    return left
+  }
+  function parseAnd(): Expr {
+    let left = parseCompare()
+    while (true) {
+      lx.eatWs()
+      if (lx.eatKeyword('and')) { const right = parseCompare(); left = { kind: 'Binary', sid: sid('bin'), op: 'and', left, right } as any }
+      else break
+    }
+    return left
+  }
+  function parseOr(): Expr {
+    let left = parseAnd()
+    while (true) {
+      lx.eatWs()
+      if (lx.eatKeyword('or')) { const right = parseAnd(); left = { kind: 'Binary', sid: sid('bin'), op: 'or', left, right } as any }
+      else break
+    }
+    return left
+  }
+
+  const expr = parseOr()
   return expr
 }
 
 export function parse(source: string): Expr {
-  const rawLines = source.split(/\n+/)
-  const lines = rawLines.map(s => s.trim()).filter(s => s.length > 0 && !s.startsWith('//'))
+  const pre = stripComments(source)
+  const rawLines = pre.split(/\n+/)
+  const lines = rawLines.map(s => s.trim()).filter(s => s.length > 0)
   const decls: Expr[] = []
   for (let idx = 0; idx < lines.length; idx++) {
     const ln = lines[idx]
@@ -257,14 +349,13 @@ export function parse(source: string): Expr {
       if (m) { decls.push({ kind: 'ModuleDecl', sid: sid('module'), name: m[1] } as any); continue }
     }
     if (ln.startsWith('import ')) {
-      const m = ln.match(/^import\s+"([^"]+)"$/)
-      if (m) {
-        decls.push({ kind: 'ImportDecl', sid: sid('import'), path: m[1] } as any)
-        continue
-      }
+      // import "path"  |  import name [as alias]
+      let m = ln.match(/^import\s+"([^"]+)"$/)
+      if (m) { decls.push({ kind: 'ImportDecl', sid: sid('import'), path: m[1] } as any); continue }
+      m = ln.match(/^import\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?$/)
+      if (m) { decls.push({ kind: 'ImportDecl', sid: sid('import'), path: m[1], name: m[1], alias: m[2] } as any); continue }
     }
     if (ln.startsWith('enum ')) {
-      // enum Name = A | B(Int, Text)
       const m = ln.match(/^enum\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/)
       if (m) {
         const name = m[1]
@@ -281,34 +372,37 @@ export function parse(source: string): Expr {
     }
     // actor block form: actor Name { ... }
     if (/^actor\s+[A-Za-z_][A-Za-z0-9_]*\s*\{$/.test(ln)) {
-      const name = ln.match(/^actor\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{$/)![1]
+      const name = ln.match(/^actor\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{$/)! [1]
       const state: Array<{ name: string, type?: string, init: Expr }> = []
-      const handlers: Array<{ pattern: Expr, replyType?: string, body: Expr }> = []
+      const handlers: Array<{ pattern: Expr, replyType?: string, body: Expr, guard?: Expr }> = []
       idx++
       for (; idx < lines.length; idx++) {
         const line = lines[idx]
         if (line === '}') break
         if (line.startsWith('state ')) {
           const sm = line.match(/^state\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/)
-          if (sm) {
-            state.push({ name: sm[1], type: sm[2], init: parseExprRD(sm[3]) })
-            continue
-          }
+          if (sm) { state.push({ name: sm[1], type: sm[2], init: parseExprRD(sm[3]) }); continue }
         }
         if (line.startsWith('on ')) {
-          // on PATTERN [if COND] reply Type -> EXPR  |  on PATTERN [if COND] -> EXPR
-          let hm = line.match(/^on\s+(.+?)\s+if\s+(.+?)\s+reply\s+([A-Za-z_][A-Za-z0-9_]*)\s*->\s*(.+)$/)
-          if (hm) { handlers.push({ pattern: parseExprRD(hm[1]), replyType: hm[3], body: parseExprRD(hm[4]), guard: parseExprRD(hm[2]) } as any); continue }
-          hm = line.match(/^on\s+(.+?)\s+reply\s+([A-Za-z_][A-Za-z0-9_]*)\s*->\s*(.+)$/)
-          if (hm) { handlers.push({ pattern: parseExprRD(hm[1]), replyType: hm[2], body: parseExprRD(hm[3]) }); continue }
-          hm = line.match(/^on\s+(.+?)\s+if\s+(.+?)\s*->\s*(.+)$/)
-          if (hm) { handlers.push({ pattern: parseExprRD(hm[1]), body: parseExprRD(hm[3]), guard: parseExprRD(hm[2]) } as any); continue }
-          hm = line.match(/^on\s+(.+)\s*->\s*(.+)$/)
-          if (hm) { handlers.push({ pattern: parseExprRD(hm[1]), body: parseExprRD(hm[2]) }); continue }
+          let tmp = line
+          tmp = tmp.replace(/^on\s+case\s+/, 'on ')
+          let hm = tmp.match(/^on\s+(.+?)\s+if\s+(.+?)\s+reply\s+([A-Za-z_][A-Za-z0-9_]*)\s*->\s*(.+)$/)
+          if (hm) { handlers.push({ pattern: parsePattern(hm[1]), replyType: hm[3], body: parseExprRD(hm[4]), guard: parseExprRD(hm[2]) } as any); continue }
+          hm = tmp.match(/^on\s+(.+?)\s+reply\s+([A-Za-z_][A-Za-z0-9_]*)\s*->\s*(.+)$/)
+          if (hm) { handlers.push({ pattern: parsePattern(hm[1]), replyType: hm[2], body: parseExprRD(hm[3]) }); continue }
+          hm = tmp.match(/^on\s+(.+?)\s+if\s+(.+?)\s*->\s*(.+)$/)
+          if (hm) { handlers.push({ pattern: parsePattern(hm[1]), body: parseExprRD(hm[3]), guard: parseExprRD(hm[2]) } as any); continue }
+          hm = tmp.match(/^on\s+(.+)\s*->\s*(.+)$/)
+          if (hm) { handlers.push({ pattern: parsePattern(hm[1]), body: parseExprRD(hm[2]) }); continue }
         }
       }
       decls.push({ kind: 'ActorDeclNew', sid: sid('actorN'), name, state, handlers, effects: new Set() } as any)
       continue
+    }
+    // mut decl
+    if (ln.startsWith('mut ')) {
+      const m = ln.match(/^mut\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/)
+      if (m) { decls.push({ kind: 'Let', sid: sid('let'), name: m[1], type: m[2] || undefined, expr: parseExprRD(m[3]), mutable: true } as any); continue }
     }
     if (ln.startsWith('let ')) {
       // let name[: Type]? = expr
@@ -317,11 +411,7 @@ export function parse(source: string): Expr {
         let rhs = m[3]
         if (/^match\b/.test(rhs) && (rhs.split('{').length - 1) > (rhs.split('}').length - 1)) {
           let depth = (rhs.match(/\{/g) || []).length - (rhs.match(/\}/g) || []).length
-          while (depth > 0 && idx + 1 < lines.length) {
-            idx++
-            rhs += '\n' + lines[idx]
-            depth += (lines[idx].match(/\{/g) || []).length - (lines[idx].match(/\}/g) || []).length
-          }
+          while (depth > 0 && idx + 1 < lines.length) { idx++; rhs += '\n' + lines[idx]; depth += (lines[idx].match(/\{/g) || []).length - (lines[idx].match(/\}/g) || []).length }
         }
         decls.push({ kind: 'Let', sid: sid('let'), name: m[1], type: m[2] || undefined, expr: parseExprRD(rhs) } as any)
         continue
@@ -339,18 +429,12 @@ export function parse(source: string): Expr {
         let bodySrc = m[5]
         if (/^match\b/.test(bodySrc) && (bodySrc.split('{').length - 1) > (bodySrc.split('}').length - 1)) {
           let depth = (bodySrc.match(/\{/g) || []).length - (bodySrc.match(/\}/g) || []).length
-          while (depth > 0 && idx + 1 < lines.length) {
-            idx++
-            bodySrc += '\n' + lines[idx]
-            depth += (lines[idx].match(/\{/g) || []).length - (lines[idx].match(/\}/g) || []).length
-          }
+          while (depth > 0 && idx + 1 < lines.length) { idx++; bodySrc += '\n' + lines[idx]; depth += (lines[idx].match(/\{/g) || []).length - (lines[idx].match(/\}/g) || []).length }
         }
         const body = parseExprRD(bodySrc)
         const effects = new Set<string>() as any
         const raises = (m[4] ?? '').trim()
-        if (raises) {
-          for (const eff of raises.split(',').map(s => s.trim()).filter(Boolean)) effects.add(eff)
-        }
+        if (raises) for (const eff of raises.split(',').map(s => s.trim()).filter(Boolean)) effects.add(eff)
         decls.push({ kind: 'Fn', sid: sid('fn'), name: m[1], params, returnType, body, effects } as any)
         continue
       }
@@ -374,25 +458,16 @@ export function parse(source: string): Expr {
       if (m) { decls.push({ kind: 'Spawn', sid: sid('spawn'), actorName: m[1] } as any); continue }
     }
     if (ln.startsWith('send ')) {
-      // support both: send a, b   and send a b
       let m = ln.match(/^send\s+([^,\s]+)\s*,\s*(.+)$/)
       if (!m) m = ln.match(/^send\s+([^\s]+)\s+(.+)$/)
       if (m) { decls.push({ kind: 'Send', sid: sid('send'), actor: parseExprRD(m[1]), message: parseExprRD(m[2]) } as any); continue }
     }
     if (ln.startsWith('ask ')) {
-      // ask a, b[, timeout]  or ask a b[, timeout]
       let m = ln.match(/^ask\s+([^,\s]+)\s*,\s*([^,\s]+)(?:\s*,\s*(\d+))?$/)
       if (!m) m = ln.match(/^ask\s+([^\s]+)\s+([^,\s]+)(?:\s*,\s*(\d+))?$/)
-      if (m) {
-        const actor = parseExprRD(m[1])
-        const msg = parseExprRD(m[2])
-        const timeout = m[3] ? Number(m[3]) : undefined
-        decls.push({ kind: 'Ask', sid: sid('ask'), actor, message: msg, timeoutMs: timeout } as any)
-        continue
-      }
+      if (m) { const actor = parseExprRD(m[1]); const msg = parseExprRD(m[2]); const timeout = m[3] ? Number(m[3]) : undefined; decls.push({ kind: 'Ask', sid: sid('ask'), actor, message: msg, timeoutMs: timeout } as any); continue }
     }
     if (ln.startsWith('match ')) {
-      // match expr { pattern [if guard] -> expr; ... }
       let mm = ln.match(/^match\s+(.+)\s*\{$/)
       if (mm) {
         const scr = parseExprRD(mm[1])
@@ -401,10 +476,11 @@ export function parse(source: string): Expr {
         for (; idx < lines.length; idx++) {
           const line = lines[idx]
           if (line === '}') break
-          let cm = line.match(/^(.+?)\s+if\s+(.+?)\s*->\s*(.+)$/)
-          if (cm) { cases.push({ pattern: parseExprRD(cm[1]), guard: parseExprRD(cm[2]), body: parseExprRD(cm[3]) }); continue }
-          cm = line.match(/^(.+?)\s*->\s*(.+)$/)
-          if (cm) { cases.push({ pattern: parseExprRD(cm[1]), body: parseExprRD(cm[2]) }); continue }
+          const trimmed = line.startsWith('case ') ? line.slice(5).trim() : line
+          let cm = trimmed.match(/^(.+?)\s+if\s+(.+?)\s*->\s*(.+)$/)
+          if (cm) { cases.push({ pattern: parsePattern(cm[1]), guard: parseExprRD(cm[2]), body: parseExprRD(cm[3]) }); continue }
+          cm = trimmed.match(/^(.+?)\s*->\s*(.+)$/)
+          if (cm) { cases.push({ pattern: parsePattern(cm[1]), body: parseExprRD(cm[2]) }); continue }
         }
         decls.push({ kind: 'Match', sid: sid('match'), scrutinee: scr, cases } as any)
         continue
@@ -418,10 +494,11 @@ export function parse(source: string): Expr {
           for (; idx < lines.length; idx++) {
             const line = lines[idx]
             if (line === '}') break
-            let cm = line.match(/^(.+?)\s+if\s+(.+?)\s*->\s*(.+)$/)
-            if (cm) { cases.push({ pattern: parseExprRD(cm[1]), guard: parseExprRD(cm[2]), body: parseExprRD(cm[3]) }); continue }
-            cm = line.match(/^(.+?)\s*->\s*(.+)$/)
-            if (cm) { cases.push({ pattern: parseExprRD(cm[1]), body: parseExprRD(cm[2]) }); continue }
+            const trimmed = line.startsWith('case ') ? line.slice(5).trim() : line
+            let cm = trimmed.match(/^(.+?)\s+if\s+(.+?)\s*->\s*(.+)$/)
+            if (cm) { cases.push({ pattern: parsePattern(cm[1]), guard: parseExprRD(cm[2]), body: parseExprRD(cm[3]) }); continue }
+            cm = trimmed.match(/^(.+?)\s*->\s*(.+)$/)
+            if (cm) { cases.push({ pattern: parsePattern(cm[1]), body: parseExprRD(cm[2]) }); continue }
           }
           decls.push({ kind: 'Match', sid: sid('match'), scrutinee: scr, cases } as any)
           continue
@@ -429,7 +506,6 @@ export function parse(source: string): Expr {
       }
     }
     if (ln.startsWith('schema ')) {
-      // schema Name { f: Type, ... }
       const m = ln.match(/^schema\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{$/)
       if (m) {
         const name = m[1]
@@ -446,15 +522,10 @@ export function parse(source: string): Expr {
       }
     }
     if (ln.startsWith('source ') || ln.startsWith('store ')) {
-      // store Name : Schema = "config"
       const m = ln.match(/^(?:source|store)\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:=\s*"([^"]*)")?$/)
-      if (m) {
-        decls.push({ kind: 'StoreDecl', sid: sid('store'), name: m[1], schema: m[2], config: m[3] ?? null } as any)
-        continue
-      }
+      if (m) { decls.push({ kind: 'StoreDecl', sid: sid('store'), name: m[1], schema: m[2], config: m[3] ?? null } as any); continue }
     }
     if (ln.startsWith('query ')) {
-      // query Name from Store where <expr> select a,b
       let m = ln.match(/^query\s+([A-Za-z_][A-Za-z0-9_]*)\s+from\s+([A-Za-z_][A-Za-z0-9_]*)\s+where\s+(.+)\s+select\s+(.+)$/)
       if (!m) m = ln.match(/^query\s+([A-Za-z_][A-Za-z0-9_]*)\s+from\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+select\s+(.+))?$/)
       if (m) {

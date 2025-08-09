@@ -267,7 +267,8 @@ async function main() {
         if (policyPath && fs_1.default.existsSync(policyPath)) {
             const policy = JSON.parse(fs_1.default.readFileSync(policyPath, 'utf8'));
             const fromPolicy = (policy?.policy?.deny ?? []);
-            denyList = Array.from(new Set([...denyList,
+            denyList = Array.from(new Set([
+                ...denyList,
                 ...fromPolicy,
             ]));
         }
@@ -967,6 +968,8 @@ function checkTypesProject(files) {
     function typeOfLiteral(e) {
         if (e.kind === 'LitNum')
             return 'Int';
+        if (e.kind === 'LitFloat')
+            return 'Float';
         if (e.kind === 'LitText')
             return 'Text';
         if (e.kind === 'LitBool')
@@ -988,10 +991,14 @@ function checkTypesProject(files) {
             return 'Unknown';
         if (t === 'Int')
             return 'Int';
+        if (t === 'Float')
+            return 'Float';
         if (t === 'Text')
             return 'Text';
         if (t === 'Bool')
             return 'Bool';
+        if (t === 'Unit')
+            return 'Unit';
         if (enumNames.has(t))
             return `ADT:${t}`;
         return 'Unknown';
@@ -1030,15 +1037,17 @@ function checkTypesProject(files) {
                 stores.set(d.name, { schema: d.schema, path: f.path });
         }
     }
-    // Second pass: check bodies
     function checkExpr(e, env, file) {
         switch (e.kind) {
             case 'LitNum':
+            case 'LitFloat':
             case 'LitText':
             case 'LitBool':
                 return typeOfLiteral(e);
-            case 'Var':
-                return env.get(e.name) ?? 'Unknown';
+            case 'Var': {
+                const ent = env.get(e.name);
+                return ent ? ent.type : 'Unknown';
+            }
             case 'Ctor': {
                 const meta = ctorToEnum.get(e.name);
                 const argTypes = e.args.map(a => checkExpr(a, env, file));
@@ -1079,7 +1088,7 @@ function checkTypesProject(files) {
                         checkExpr(c.guard, env, file);
                     const bt = checkExpr(c.body, env, file);
                     // infer base type consensus
-                    if (bt === 'Int' || bt === 'Text' || bt === 'Bool' || bt === 'Unit') {
+                    if (bt === 'Int' || bt === 'Float' || bt === 'Text' || bt === 'Bool' || bt === 'Unit') {
                         allBranchesBaseType = allBranchesBaseType === null ? bt : (allBranchesBaseType === bt ? bt : 'Unknown');
                     }
                     else if (typeof bt === 'string' && bt.startsWith('ADT:')) {
@@ -1106,6 +1115,24 @@ function checkTypesProject(files) {
                     else if (c.pattern?.kind === 'Var' && (c.pattern.name === '_' || c.pattern.name === '*')) {
                         onlyCtors = false;
                     }
+                    else if (c.pattern?.kind === 'PatternOr') {
+                        // treat as covering multiple ctors only if both sides are ctors from same enum
+                        const left = c.pattern.left;
+                        const right = c.pattern.right;
+                        if (left?.kind === 'Ctor' && right?.kind === 'Ctor') {
+                            const ml = ctorToEnum.get(left.name);
+                            const mr = ctorToEnum.get(right.name);
+                            if (ml && mr && ml.enumName === mr.enumName) {
+                                ctors.add(left.name);
+                                ctors.add(right.name);
+                                enumNameForCases = enumNameForCases ?? ml.enumName;
+                            }
+                            else
+                                onlyCtors = false;
+                        }
+                        else
+                            onlyCtors = false;
+                    }
                     else {
                         onlyCtors = false;
                     }
@@ -1128,16 +1155,58 @@ function checkTypesProject(files) {
                 if (e.type && declT !== 'Unknown' && t !== 'Unknown' && declT !== t) {
                     errors.push(`${file}: type mismatch in let ${e.name}: declared ${declT} but got ${t}`);
                 }
-                env.set(e.name, declT !== 'Unknown' ? declT : t);
-                return env.get(e.name) ?? 'Unknown';
+                env.set(e.name, { type: declT !== 'Unknown' ? declT : t, mutable: Boolean(e.mutable) });
+                return env.get(e.name)?.type ?? 'Unknown';
+            }
+            case 'Assign': {
+                const ent = env.get(e.name);
+                if (!ent || !ent.mutable)
+                    errors.push(`${file}: assignment to immutable or undeclared name ${e.name}`);
+                return checkExpr(e.expr, env, file);
+            }
+            case 'Unary': {
+                const t = checkExpr(e.expr, env, file);
+                if (e.op === 'not') {
+                    if (t !== 'Bool' && t !== 'Unknown')
+                        errors.push(`${file}: unary not expects Bool, got ${t}`);
+                    return 'Bool';
+                }
+                if (e.op === 'neg') {
+                    if ((t !== 'Int' && t !== 'Float') && t !== 'Unknown')
+                        errors.push(`${file}: unary - expects numeric, got ${t}`);
+                    return t;
+                }
+                return 'Unknown';
             }
             case 'Binary': {
                 const lt = checkExpr(e.left, env, file);
                 const rt = checkExpr(e.right, env, file);
-                if ((lt !== 'Int' || rt !== 'Int') && (lt !== 'Unknown' && rt !== 'Unknown')) {
-                    errors.push(`${file}: binary ${e.op} expects Int, got ${lt} and ${rt}`);
+                const numericOps = ['+', '-', '*', '/', '%'];
+                const cmpOps = ['==', '!=', '<', '<=', '>', '>='];
+                const boolOps = ['and', 'or'];
+                if (numericOps.includes(e.op)) {
+                    if ((lt !== 'Int' && lt !== 'Float') || (rt !== 'Int' && rt !== 'Float')) {
+                        if (lt !== 'Unknown' && rt !== 'Unknown')
+                            errors.push(`${file}: binary ${e.op} expects numeric, got ${lt} and ${rt}`);
+                    }
+                    return (lt === 'Float' || rt === 'Float') ? 'Float' : 'Int';
                 }
-                return 'Int';
+                if (cmpOps.includes(e.op)) {
+                    // allow comparing same-typed numeric or text/bool; result bool
+                    if (lt !== rt && lt !== 'Unknown' && rt !== 'Unknown') {
+                        // permit Int vs Float comparisons
+                        if (!((lt === 'Int' && rt === 'Float') || (lt === 'Float' && rt === 'Int'))) {
+                            errors.push(`${file}: comparison ${e.op} between ${lt} and ${rt}`);
+                        }
+                    }
+                    return 'Bool';
+                }
+                if (boolOps.includes(e.op)) {
+                    if ((lt !== 'Bool' || rt !== 'Bool') && (lt !== 'Unknown' && rt !== 'Unknown'))
+                        errors.push(`${file}: boolean ${e.op} expects Bool, got ${lt} and ${rt}`);
+                    return 'Bool';
+                }
+                return 'Unknown';
             }
             case 'EffectCall': {
                 const rt = effectReturnType(e.effect, e.op);
@@ -1171,10 +1240,22 @@ function checkTypesProject(files) {
                     last = checkExpr(s, local, file);
                 return last;
             }
+            case 'If': {
+                const ct = checkExpr(e.cond, env, file);
+                if (ct !== 'Bool' && ct !== 'Unknown')
+                    errors.push(`${file}: if condition must be Bool, got ${ct}`);
+                const tt = checkExpr(e.then, env, file);
+                const et = checkExpr(e.else, env, file);
+                if (tt === et)
+                    return tt;
+                if ((tt === 'Int' && et === 'Float') || (tt === 'Float' && et === 'Int'))
+                    return 'Float';
+                return 'Unknown';
+            }
             case 'Fn': {
                 const local = new Map(env);
                 for (const p of e.params)
-                    local.set(p.name, parseTypeName(p.type));
+                    local.set(p.name, { type: parseTypeName(p.type), mutable: false });
                 const bodyT = checkExpr(e.body, local, file);
                 const retT = parseTypeName(e.returnType);
                 if (e.returnType) {
@@ -1238,11 +1319,10 @@ function checkTypesProject(files) {
                             errors.push(`${f.path}: query ${d.name} selects unknown field ${p}`);
                     // basic predicate variable usage: allow only field names and literals/operators
                     if (d.predicate) {
-                        // Build env with field types and type-check predicate
-                        const env = new Map();
+                        const envPred = new Map();
                         for (const [k, v] of Object.entries(schema))
-                            env.set(k, parseTypeName(v));
-                        const _t = checkExpr(d.predicate, env, f.path);
+                            envPred.set(k, { type: parseTypeName(v), mutable: false });
+                        const _t = checkExpr(d.predicate, envPred, f.path);
                     }
                 }
             }
@@ -1274,6 +1354,21 @@ function checkTypesProject(files) {
                         enumName = null;
                         break;
                     }
+                    else if (h.pattern?.kind === 'PatternOr') {
+                        const left = h.pattern.left, right = h.pattern.right;
+                        if (left?.kind === 'Ctor' && right?.kind === 'Ctor') {
+                            const ml = ctorToEnum.get(left.name);
+                            const mr = ctorToEnum.get(right.name);
+                            if (ml && mr && ml.enumName === mr.enumName) {
+                                ctors.add(left.name);
+                                ctors.add(right.name);
+                            }
+                            else
+                                onlyCtors = false;
+                        }
+                        else
+                            onlyCtors = false;
+                    }
                     else {
                         onlyCtors = false;
                     }
@@ -1301,29 +1396,6 @@ function checkTypesProject(files) {
                 }
             }
         }
-    }
-    function validatePredicateUses(expr, schema) {
-        let ok = true;
-        const visit = (e) => {
-            if (!e || typeof e !== 'object')
-                return;
-            if (e.kind === 'Var') {
-                if (!(e.name in schema))
-                    ok = false;
-                return;
-            }
-            for (const k of Object.keys(e)) {
-                const v = e[k];
-                if (v && typeof v === 'object' && 'kind' in v)
-                    visit(v);
-                if (Array.isArray(v))
-                    for (const it of v)
-                        if (it && typeof it === 'object' && 'kind' in it)
-                            visit(it);
-            }
-        };
-        visit(expr);
-        return ok;
     }
     return { errors };
 }

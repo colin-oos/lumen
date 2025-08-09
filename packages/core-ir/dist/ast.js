@@ -36,6 +36,7 @@ function hashString(input) {
 function nodeSignature(e) {
     switch (e.kind) {
         case 'LitNum': return `LitNum:${e.value}`;
+        case 'LitFloat': return `LitFloat:${e.value}`;
         case 'LitText': return `LitText:${e.value}`;
         case 'LitBool': return `LitBool:${e.value}`;
         case 'Var': return `Var:${e.name}`;
@@ -46,15 +47,18 @@ function nodeSignature(e) {
             return `Fn:${e.name ?? ''}(${paramsSig}):${e.body.sid ?? '?'}:${eff}`;
         }
         case 'Call': return `Call:${e.callee.sid ?? '?'}(${e.args.map(a => a.sid ?? '?').join(',')})`;
+        case 'Unary': return `Unary:${e.op}:${e.expr.sid ?? '?'}`;
         case 'Binary': return `Binary:${e.op}:${e.left.sid ?? '?'}:${e.right.sid ?? '?'}`;
+        case 'If': return `If:${e.cond.sid ?? '?'}:${e.then.sid ?? '?'}:${e.else.sid ?? '?'}`;
         case 'EffectCall': return `EffectCall:${e.effect}:${e.op}(${e.args.map(a => a.sid ?? '?').join(',')})`;
         case 'RecordLit': return `RecordLit:{${e.fields.map(f => `${f.name}:${f.expr.sid ?? '?'}`).join(',')}}`;
         case 'TupleLit': return `TupleLit:(${e.elements.map(a => a.sid ?? '?').join(',')})`;
+        case 'PatternOr': return `PatternOr:${e.left.sid ?? '?'}|${e.right.sid ?? '?'}`;
         case 'Match': return `Match:${e.scrutinee.sid ?? '?'}:${e.cases.length}`;
         case 'SchemaDecl': return `SchemaDecl:${e.name}:${Object.entries(e.fields).map(([k, v]) => `${k}:${v}`).join(',')}`;
         case 'StoreDecl': return `StoreDecl:${e.name}:${e.schema}:${e.config ?? ''}`;
         case 'QueryDecl': return `QueryDecl:${e.name}:${e.source}:${e.predicate?.sid ?? ''}:${(e.projection || []).join(',')}`;
-        case 'ImportDecl': return `ImportDecl:${e.path}`;
+        case 'ImportDecl': return `ImportDecl:${e.path}:${e.alias ?? ''}`;
         case 'ModuleDecl': return `ModuleDecl:${e.name}`;
         case 'EnumDecl': return `EnumDecl:${e.name}:${e.variants.map(v => `${v.name}(${v.params.join(',')})`).join('|')}`;
         case 'Ctor': return `Ctor:${e.name}(${e.args.map(a => a.sid ?? '?').join(',')})`;
@@ -90,9 +94,17 @@ function assignStableSids(e) {
             for (const a of e.args)
                 assignStableSids(a);
             break;
+        case 'Unary':
+            assignStableSids(e.expr);
+            break;
         case 'Binary':
             assignStableSids(e.left);
             assignStableSids(e.right);
+            break;
+        case 'If':
+            assignStableSids(e.cond);
+            assignStableSids(e.then);
+            assignStableSids(e.else);
             break;
         case 'Block':
             for (const s of e.stmts)
@@ -109,6 +121,10 @@ function assignStableSids(e) {
         case 'TupleLit':
             for (const a of e.elements)
                 assignStableSids(a);
+            break;
+        case 'PatternOr':
+            assignStableSids(e.left);
+            assignStableSids(e.right);
             break;
         case 'Match':
             assignStableSids(e.scrutinee);
