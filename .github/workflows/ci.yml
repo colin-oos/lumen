@@ -1,42 +1,77 @@
-name: CI
+name: lumen-ci
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "**" ]
   pull_request:
+    branches: [ "**" ]
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Install
-        run: npm ci
-      - name: Build
-        run: npm run build
+    timeout-minutes: 25
 
-  test-sharded:
-    needs: build
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [ core, effects, actors, lsp, extras ]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          node-version: '20'
+          fetch-depth: 0
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
       - name: Install
         run: npm ci
+
+      - name: Build
+        run: npm run build --workspaces
+
+      - name: Unit tests
+        run: npm test --workspaces
+
+      # Round-trip / formatting guards
+      - name: Canonical format pass 1
+        run: npm run lumen:fmt .
+
+      - name: No diff after first format
+        run: git diff --exit-code
+
+      - name: Canonical format pass 2 (belt & suspenders)
+        run: npm run lumen:fmt .
+
+      - name: No diff after second format
+        run: git diff --exit-code
+
+      # SID stability & IR round-trip
+      - name: SID stability test
+        run: npm run test:sid
+
+      # Effects guardrails & propagation
+      - name: Effects negative/positive tests
+        run: npm run test:effects
+
+      # Deterministic trace (actors/dataflow)
+      - name: Determinism tests
+        run: npm run test:determinism
+
+      # Actor capability enforcement
+      - name: Actor capabilities denial tests
+        run: npm run test:caps
+
+      # SQLite mock vs real parity
       - name: Install better-sqlite3 (optional)
         run: npm run ci:install-sqlite
-      - name: Generate SQLite DB (optional)
-        run: npm run gen:sqlite || true
-      - name: Build
-        run: npm run build
-      - name: Run shard
-        run: npm run test:${{ matrix.shard }}
+
+      - name: SQLite parity tests
+        run: npm run test:sqlite
+
+      # LSP rename preserves non-target SIDs (basic)
+      - name: LSP rename tests
+        run: npm run test:lsp
+
+      # EditScript by SID (placeholder until CLI apply is available)
+      - name: EditScript patch tests
+        run: npm run test:editscript
