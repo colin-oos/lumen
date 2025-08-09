@@ -7,6 +7,9 @@ export interface RunResult {
   trace: Array<{ sid: string, note: string }>
 }
 
+const LOOP_BREAK = Symbol.for('lumen.break')
+const LOOP_CONTINUE = Symbol.for('lumen.continue')
+
 export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffects?: boolean }): RunResult {
   const trace: RunResult['trace'] = []
   const env = new Map<string, unknown>()
@@ -160,7 +163,6 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
           return go((p as any).right, v)
         }
         default:
-          // Fallback compare
           return { ok: equal(evalExpr(p), v), binds: new Map() }
       }
     }
@@ -437,34 +439,22 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
         return truthy(c) ? evalExpr(e.then) : evalExpr(e.else)
       }
       case 'While': {
-        const loopBreak = Symbol('break')
-        const loopCont = Symbol('continue')
-        function evalLoopBody(): unknown {
-          try { return evalExpr((e as any).body) }
-          catch (x) {
-            if (x === loopBreak) return null
-            if (x === loopCont) return evalLoopBody()
-            throw x
-          }
-        }
         while (truthy(evalExpr(e.cond))) {
-          try { evalLoopBody() } catch (x) { if (x === loopBreak) break; else if (x === loopCont) continue; else throw x }
+          try { evalExpr((e as any).body) } catch (x) { if (x === LOOP_BREAK) break; else if (x === LOOP_CONTINUE) continue; else throw x }
         }
         return null
       }
       case 'For': {
-        const loopBreak = Symbol('break')
-        const loopCont = Symbol('continue')
         const it = evalExpr(e.iter)
         const arr = Array.isArray(it) ? it : []
         for (const v of arr) {
           env.set(e.name, v)
-          try { evalExpr(e.body) } catch (x) { if (x === loopBreak) break; else if (x === loopCont) continue; else throw x }
+          try { evalExpr(e.body) } catch (x) { if (x === LOOP_BREAK) break; else if (x === LOOP_CONTINUE) continue; else throw x }
         }
         return null
       }
-      case 'Break': throw Symbol('break')
-      case 'Continue': throw Symbol('continue')
+      case 'Break': throw LOOP_BREAK
+      case 'Continue': throw LOOP_CONTINUE
       case 'RecordLit': {
         const obj: any = {}
         for (const f of e.fields as any[]) obj[f.name] = evalExpr(f.expr)
