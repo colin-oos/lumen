@@ -16,10 +16,14 @@
     "test:effects": "node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/effects-mock.ts && node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/http-policy.ts",
     "test:actors": "node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/actor-trace.ts && node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/adder-trace.ts",
     "test:lsp": "node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/serve-smoke.ts && node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/serve-symbols.ts",
-    "test:extras": "node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/emit-types.ts && node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/loops-stdlib.ts && node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/stdlib-extras.ts && node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/for-loop-control.ts && node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/trace-seed.ts && node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/determinism-seeded.ts && node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/property-trace.ts && node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/text-helpers.ts"
+    "test:extras": "node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/emit-types.ts && node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/loops-stdlib.ts && node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/stdlib-extras.ts && node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/for-loop-control.ts && node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/trace-seed.ts && node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/determinism-seeded.ts && node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/property-trace.ts && node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/text-helpers.ts",
+    "ci:install-sqlite": "npm i better-sqlite3 || true"
   },
   "devDependencies": {
     "typescript": "^5.5.0",
     "ts-node": "^10.9.2"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^9.4.0"
   }
 }
