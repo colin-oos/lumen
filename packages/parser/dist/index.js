@@ -729,6 +729,24 @@ function parse(source) {
                 continue;
             }
         }
+        if (ln.startsWith('spec ')) {
+            const m = ln.match(/^spec\s+"([^"]+)"\s*\{$/);
+            if (m) {
+                const name = m[1];
+                idx += 1;
+                const asserts = [];
+                for (; idx < lines.length; idx++) {
+                    const line = lines[idx];
+                    if (line === '}')
+                        break;
+                    const am = line.match(/^assert\s*\(\s*(.+)\s*,\s*"([^"]*)"\s*\)\s*;?$/);
+                    if (am)
+                        asserts.push({ expr: parseExprRD(am[1]), message: am[2] });
+                }
+                decls.push({ kind: 'SpecDecl', sid: (0, core_ir_1.sid)('spec'), name, asserts });
+                continue;
+            }
+        }
         if (ln.startsWith('source ') || ln.startsWith('store ')) {
             const m = ln.match(/^(?:source|store)\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:=\s*"([^"]*)")?$/);
             if (m) {

@@ -218,6 +218,15 @@ export type Expr = {
     timeoutMs?: number;
     span?: Span;
 } | {
+    kind: 'SpecDecl';
+    sid: Sid;
+    name: string;
+    asserts: Array<{
+        expr: Expr;
+        message: string;
+    }>;
+    span?: Span;
+} | {
     kind: 'Program';
     sid: Sid;
     decls: Expr[];

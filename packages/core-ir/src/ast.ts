@@ -33,6 +33,7 @@ export type Expr =
   | { kind: 'Spawn', sid: Sid, actorName: string, span?: Span }
   | { kind: 'Send', sid: Sid, actor: Expr, message: Expr, span?: Span }
   | { kind: 'Ask', sid: Sid, actor: Expr, message: Expr, timeoutMs?: number, span?: Span }
+  | { kind: 'SpecDecl', sid: Sid, name: string, asserts: Array<{ expr: Expr, message: string }>, span?: Span }
   | { kind: 'Program', sid: Sid, decls: Expr[], span?: Span }
 
 export type Effect =
@@ -102,6 +103,7 @@ function nodeSignature(e: Expr): string {
     case 'Spawn': return `Spawn:${e.actorName}`
     case 'Send': return `Send:${(e.actor as any).sid ?? '?'}:${(e.message as any).sid ?? '?'}`
     case 'Ask': return `Ask:${(e.actor as any).sid ?? '?'}:${(e.message as any).sid ?? '?'}:${e.timeoutMs ?? ''}`
+    case 'SpecDecl': return `SpecDecl:${e.name}:${e.asserts.length}`
     case 'Program': return `Program:${e.decls.map(d => (d as any).sid ?? '?').join(',')}`
     default: return 'Unknown'
   }
@@ -135,6 +137,7 @@ export function assignStableSids(e: Expr): void {
       break
     case 'Send': assignStableSids(e.actor); assignStableSids(e.message); break
     case 'Ask': assignStableSids(e.actor); assignStableSids(e.message); break
+    case 'SpecDecl': for (const a of e.asserts) assignStableSids(a.expr as any); break
     default: break
   }
   const sig = nodeSignature(e)

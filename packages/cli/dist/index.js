@@ -36,6 +36,7 @@ function usage() {
     check <path> [--json] [--policy <file>] [--strict-warn]  Round-trip + effect check for file or directory
     init <dir>             Scaffold a new LUMEN project
     serve                  Start simple LSP-like server on stdin/stdout (newline-delimited JSON)
+    test <path>            Run spec blocks in file or directory
 `);
 }
 async function main() {
@@ -351,6 +352,40 @@ async function main() {
             for (const w of writeBack)
                 fs_1.default.writeFileSync(w.path, w.content, 'utf8');
         console.log('OK');
+        return;
+    }
+    if (cmd === 'test') {
+        const files = isDir ? collectLumFiles(resolved, true) : [resolved];
+        const results = [];
+        for (const f of files) {
+            const src = fs_1.default.readFileSync(f, 'utf8');
+            const ast = (0, parser_1.parse)(src);
+            (0, core_ir_1.assignStableSids)(ast);
+            if (ast.kind !== 'Program')
+                continue;
+            for (const d of ast.decls) {
+                if (d.kind === 'SpecDecl') {
+                    const failures = [];
+                    for (const a of (d.asserts || [])) {
+                        try {
+                            const exprAst = { kind: 'Program', sid: 'prog:inline', decls: [a.expr] };
+                            const out = (0, runner_1.run)(exprAst);
+                            const pass = Boolean(out.value);
+                            if (!pass)
+                                failures.push(a.message || 'assert failed');
+                        }
+                        catch (e) {
+                            failures.push(a.message || String(e));
+                        }
+                    }
+                    results.push({ file: f, name: d.name, ok: failures.length === 0, failures });
+                }
+            }
+        }
+        const ok = results.every(r => r.ok);
+        console.log(JSON.stringify({ ok, results }, null, 2));
+        if (!ok)
+            process.exit(5);
         return;
     }
     if (cmd === 'init') {
