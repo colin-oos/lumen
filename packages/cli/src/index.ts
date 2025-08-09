@@ -197,8 +197,25 @@ async function main() {
           } else if (req.action === 'rename') {
             const oldName = String(req.oldName || '')
             const newName = String(req.newName || '')
-            const rn = (lspHover && require('@lumen/lsp').rename) ? require('@lumen/lsp').rename(src, oldName, newName) : { edits: [], newSource: src }
-            process.stdout.write(JSON.stringify({ ok: true, rename: rn }) + '\n')
+            let renameFn: any = null
+            try { renameFn = require('@lumen/lsp').rename } catch {}
+            if (!renameFn) {
+              try { renameFn = require('../lsp/dist/index.js').rename } catch {}
+            }
+            if (!renameFn) {
+              // fallback simple textual rename
+              const lines = src.split(/\n/)
+              const edits: Array<{ line: number, column: number, length: number }> = []
+              for (let i = 0; i < lines.length; i++) {
+                const idx = lines[i].indexOf(oldName)
+                if (idx >= 0) edits.push({ line: i + 1, column: idx + 1, length: oldName.length })
+              }
+              const newSource = src.replace(new RegExp(oldName, 'g'), newName)
+              process.stdout.write(JSON.stringify({ ok: true, rename: { edits, newSource } }) + '\n')
+            } else {
+              const rn = renameFn(src, oldName, newName)
+              process.stdout.write(JSON.stringify({ ok: true, rename: rn }) + '\n')
+            }
           } else {
             process.stdout.write(JSON.stringify({ ok: false, error: 'unknown action' }) + '\n')
           }
