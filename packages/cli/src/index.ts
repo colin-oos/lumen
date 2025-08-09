@@ -31,6 +31,7 @@ function usage() {
     check <path> [--json] [--policy <file>] [--strict-warn]  Round-trip + effect check for file or directory
     init <dir>             Scaffold a new LUMEN project
     serve                  Start simple LSP-like server on stdin/stdout (newline-delimited JSON)
+    test <path>            Run spec blocks in file or directory
 `)
 }
 
@@ -288,6 +289,36 @@ async function main() {
     if (!ok) process.exit(2)
     if (write) for (const w of writeBack) fs.writeFileSync(w.path, w.content, 'utf8')
     console.log('OK')
+    return
+  }
+  if (cmd === 'test') {
+    const files = isDir ? collectLumFiles(resolved, true) : [resolved]
+    const results: Array<{ file: string, name: string, ok: boolean, failures: string[] }> = []
+    for (const f of files) {
+      const src = fs.readFileSync(f, 'utf8')
+      const ast = parse(src)
+      assignStableSids(ast as any)
+      if (ast.kind !== 'Program') continue
+      for (const d of ast.decls as any[]) {
+        if (d.kind === 'SpecDecl') {
+          const failures: string[] = []
+          for (const a of (d.asserts || [])) {
+            try {
+              const exprAst = { kind: 'Program', sid: 'prog:inline', decls: [a.expr] }
+              const out = run(exprAst as any)
+              const pass = Boolean(out.value)
+              if (!pass) failures.push(a.message || 'assert failed')
+            } catch (e: any) {
+              failures.push(a.message || String(e))
+            }
+          }
+          results.push({ file: f, name: d.name, ok: failures.length === 0, failures })
+        }
+      }
+    }
+    const ok = results.every(r => r.ok)
+    console.log(JSON.stringify({ ok, results }, null, 2))
+    if (!ok) process.exit(5)
     return
   }
 

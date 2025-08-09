@@ -114,6 +114,10 @@ function formatOne(node: Expr): string {
       }).join('\n')
       return `match ${formatOne(node.scrutinee)} {\n${cases}\n}`
     }
+    case 'SpecDecl': {
+      const lines = (node as any).asserts.map((a: any) => `  assert(${formatOne(a.expr)}, ${JSON.stringify(a.message)})`).join('\n')
+      return `spec ${JSON.stringify((node as any).name)} {\n${lines}\n}`
+    }
     default:
       return `/* ${node.kind} */`
   }

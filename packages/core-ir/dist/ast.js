@@ -69,6 +69,7 @@ function nodeSignature(e) {
         case 'Spawn': return `Spawn:${e.actorName}`;
         case 'Send': return `Send:${e.actor.sid ?? '?'}:${e.message.sid ?? '?'}`;
         case 'Ask': return `Ask:${e.actor.sid ?? '?'}:${e.message.sid ?? '?'}:${e.timeoutMs ?? ''}`;
+        case 'SpecDecl': return `SpecDecl:${e.name}:${e.asserts.length}`;
         case 'Program': return `Program:${e.decls.map(d => d.sid ?? '?').join(',')}`;
         default: return 'Unknown';
     }
@@ -169,6 +170,10 @@ function assignStableSids(e) {
         case 'Ask':
             assignStableSids(e.actor);
             assignStableSids(e.message);
+            break;
+        case 'SpecDecl':
+            for (const a of e.asserts)
+                assignStableSids(a.expr);
             break;
         default: break;
     }
