@@ -1,0 +1,5 @@
+# Ignore core dumps and large artifacts
+core
+*.core
+*.dump
+.lumen-cache/
