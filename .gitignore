@@ -3,3 +3,4 @@ core
 *.core
 *.dump
 .lumen-cache/
+node_modules/
