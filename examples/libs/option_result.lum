@@ -1,3 +1,13 @@
 module option_result
 enum Option = Some(Int) | None
 enum Result = Ok(Int) | Err(Text)
+
+fn incOpt(x: Option): Option = match x {
+  Some(1) -> Some(2)
+  _ -> x
+}
+
+fn safeDiv(a: Int, b: Int): Result = match b {
+  0 -> Err("div by zero")
+  _ -> Ok(a / b)
+}
