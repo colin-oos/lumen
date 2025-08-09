@@ -76,3 +76,15 @@ fn values(xs) = {
   for p in xs { let kv = match p { case [_, b] -> b }; out = out + [ kv ]; }
   out
 }
+
+// Predicates on lists
+fn any(xs, f): Bool = stdlib.reduce(xs, false, fn(a: Bool, x): Bool = if f(x) then true else a)
+
+fn all(xs, f): Bool = stdlib.reduce(xs, true, fn(a: Bool, x): Bool = if f(x) then a else false)
+
+// Unique elements (by JSON equality)
+fn unique(xs) = stdlib.reduce(xs, [], fn(a, x) = if stdlib.hasSet(a, x) then a else (a + [ x ]))
+
+fn union(a, b) = stdlib.unique(a + b)
+
+fn intersect(a, b) = stdlib.reduce(a, [], fn(acc, x) = if stdlib.hasSet(b, x) then (acc + [ x ]) else acc)
