@@ -135,12 +135,12 @@ async function main() {
               const typeReport = checkTypesProject(files)
               const policy = policyPath && fs.existsSync(policyPath) ? JSON.parse(fs.readFileSync(policyPath, 'utf8')) : null
               const policyReport = policy ? checkPolicyDetailed(files, policy) : { errors: [], warnings: [] as string[] }
-              const diagnostics = [
-                ...typeReport.errors.map(m => ({ message: m })),
-                ...effErrors.map(m => ({ message: m })),
-                ...policyReport.errors.map(m => ({ message: m })),
-                ...policyReport.warnings.map(m => ({ message: `warn: ${m}` }))
-              ]
+              const diagnostics = {
+                types: { errors: typeReport.errors },
+                effects: { errors: effErrors },
+                policy: { errors: policyReport.errors, warnings: policyReport.warnings },
+                counts: { errors: typeReport.errors.length + effErrors.length + policyReport.errors.length, warnings: policyReport.warnings.length }
+              }
               process.stdout.write(JSON.stringify({ ok: true, diagnostics }) + '\n')
             } else {
               const diags = lspDiagnostics ? lspDiagnostics(src) : []
