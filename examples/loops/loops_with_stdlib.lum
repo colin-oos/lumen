@@ -1,0 +1,10 @@
+module demo
+
+import "../libs/stdlib.lum"
+
+let xs = [1,2,3,4]
+let ys = stdlib.map(xs, fn(x: Int): Int = x * 2)
+let evens = stdlib.filter(ys, fn(x: Int): Bool = x % 2 == 0)
+let sum = stdlib.reduce(evens, 0, fn(a: Int, x: Int): Int = a + x)
+
+sum

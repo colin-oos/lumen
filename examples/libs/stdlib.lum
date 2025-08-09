@@ -1,48 +1,47 @@
 module stdlib
 
 // Text helpers (pure wrappers; behavior minimal/deterministic)
-fn length(s: Text): Int = 0  // placeholder; actual integration requires host interop
-fn uppercase(s: Text): Text = s
-fn lowercase(s: Text): Text = s
+fn length(s): Int = 0  // placeholder; actual integration requires host interop
+fn uppercase(s): Text = s
+fn lowercase(s): Text = s
 
-// List[Int] helpers using loops
-fn map(xs: [Int], f: fn(x: Int): Int): [Int] = {
+// List helpers using loops
+fn map(xs, f): [Int] = {
   let out = []
   for i in xs { out = out + [ f(i) ]; }
   out
 }
 
-fn filter(xs: [Int], f: fn(x: Int): Bool): [Int] = {
+fn filter(xs, f): [Int] = {
   let out = []
   for i in xs { if f(i) then out = out + [ i ] else out = out; }
   out
 }
 
-fn reduce(xs: [Int], init: Int, f: fn(a: Int, x: Int): Int): Int = {
+fn reduce(xs, init, f) = {
   let acc = init
   for i in xs { acc = f(acc, i); }
   acc
 }
 
-// Set modeled as list[Int]
-fn hasSet(xs: [Int], x: Int): Bool = {
+// Set modeled as list
+fn hasSet(xs, x): Bool = {
   let found = false
   for i in xs { if i == x then found = true else found = found; }
   found
 }
 
-// Map modeled as list of [k, v] pairs (both Int)
-fn getMap(xs: [[Int]], k: Int, def: Int): Int = {
+// Map modeled as list of [k, v] pairs
+fn getMap(xs, k, def) = {
   let out = def
   for pair in xs {
-    // expect pair as [key, val]; destructure via match
     let kv = match pair { case [a, b] -> { a: a, b: b } }
     if kv.a == k then out = kv.b else out = out;
   }
   out
 }
 
-fn setMap(xs: [[Int]], k: Int, v: Int): [[Int]] = {
+fn setMap(xs, k, v) = {
   let out = []
   let replaced = false
   for pair in xs {
