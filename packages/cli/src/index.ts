@@ -189,7 +189,13 @@ async function main() {
     assignStableSids(ast)
     const res = run(ast)
     const hash = hashTrace(res.trace)
-    console.log(JSON.stringify({ hash, trace: res.trace }, null, 2))
+    const expectFlagIdx = rest.indexOf('--expect')
+    let expectHash: string | null = null
+    if (expectFlagIdx >= 0) expectHash = rest[expectFlagIdx + 1] || null
+    const hashOnly = rest.includes('--hash-only')
+    if (hashOnly) console.log(hash)
+    else console.log(JSON.stringify({ hash, trace: res.trace }, null, 2))
+    if (expectHash && expectHash !== hash) process.exit(3)
     return
   }
   if (cmd === 'run') {
