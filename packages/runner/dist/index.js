@@ -82,6 +82,24 @@ function run(ast, options) {
     env.set('stdlib.split', (s, sep) => typeof s === 'string' && typeof sep === 'string' ? s.split(sep) : []);
     env.set('stdlib.join', (xs, sep) => Array.isArray(xs) && typeof sep === 'string' ? xs.join(sep) : '');
     env.set('stdlib.replace', (s, a, b) => typeof s === 'string' && typeof a === 'string' && typeof b === 'string' ? s.split(a).join(b) : s);
+    env.set('stdlib.padLeft', (s, n, ch) => {
+        const str = typeof s === 'string' ? s : String(s);
+        const width = typeof n === 'number' ? n : Number(n);
+        const fill = typeof ch === 'string' && ch.length > 0 ? ch[0] : ' ';
+        if (!isFinite(width) || width <= str.length)
+            return str;
+        return fill.repeat(width - str.length) + str;
+    });
+    env.set('stdlib.padRight', (s, n, ch) => {
+        const str = typeof s === 'string' ? s : String(s);
+        const width = typeof n === 'number' ? n : Number(n);
+        const fill = typeof ch === 'string' && ch.length > 0 ? ch[0] : ' ';
+        if (!isFinite(width) || width <= str.length)
+            return str;
+        return str + fill.repeat(width - str.length);
+    });
+    env.set('stdlib.concat', (xs, ys) => (Array.isArray(xs) ? xs : []).concat(Array.isArray(ys) ? ys : []));
+    env.set('stdlib.flatten', (xss) => Array.isArray(xss) ? xss.reduce((a, x) => a.concat(Array.isArray(x) ? x : [x]), []) : []);
     function wrapMessage(m) {
         if (m && typeof m === 'object' && 'value' in m)
             return m;
