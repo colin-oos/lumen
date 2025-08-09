@@ -1,33 +1,80 @@
-# LUMEN CLI Reference (v0.1)
+# CLI Reference
 
-Commands:
+Use via `npm run lumen -- <cmd> ...` or `node packages/cli/dist/index.js <cmd> ...`.
 
-- fmt <path> [--write] [--recursive]
-  - Format a file or directory. Prints to stdout unless --write is provided.
+## Commands
 
-- run <file> [--deny e1,e2] [--policy path] [--strict-warn] [--mock-effects] [--no-cache]
-  - Parse with imports and run. Policy denies and strict-warn enforced in JSON output.
+### run
+Execute a program (merging transitive imports).
+```
+npm run lumen -- run examples/actors/adder.lum [--deny e1,e2] [--mock-effects] [--policy lumen.json] [--strict-warn] [--scheduler-seed S]
+```
+Output (JSON): value, trace, policy report, denied effects.
 
-- check <path> [--json] [--policy path] [--strict-warn] [--recursive] [--write]
-  - Round-trip + effect/type/policy checks over a file or directory (with imports). JSON output includes errors, warnings, and types.
+### fmt
+Format a file or directory.
+```
+npm run lumen -- fmt <path> [--write] [--recursive]
+```
 
-- init <dir>
-  - Scaffold a new LUMEN project with src/main.lum and lumen.json.
+### check
+Round-trip stability + type/effect/policy checks.
+```
+npm run lumen -- check <path> [--json] [--policy lumen.json] [--strict-warn]
+```
 
-- trace <file> [--no-cache]
-  - Prints execution trace and a deterministic hash (t:<base36>) useful for regression testing.
+### trace
+Run and print a deterministic trace; optionally hash.
+```
+npm run lumen -- trace <file> [--hash-only] [--expect HASH] [--seed S] [--scheduler-seed S]
+```
 
-- cache clear
-  - Clears the content-addressed merged-program cache at .lumen-cache/
+### emit
+Emit TypeScript types.
+```
+npm run lumen -- emit <file> --ts
+```
 
-- hover <file> <symbol> [--json]
-  - Prints enum/constructor/function info for a symbol in a file.
+### serve
+Start a simple LSP-like server over stdin/stdout using newline-delimited JSON.
+```
+npm run lumen -- serve
+```
+See `docs/serve.md` for requests: diagnostics, hover, symbols, definitions, references, completions, rename.
 
-- serve
-  - Start a simple newline-delimited JSON protocol on stdin/stdout.
-  - Requests:
-    - {"action":"hover","file":"path","symbol":"Name"}
-    - {"action":"diagnostics","file":"path"}
-    - {"action":"diagnostics","source":"lumen-source"}
-    - {"action":"symbols","file":"path"}
-  - Responses are JSON with ok and requested payload.
+### test
+Execute `spec` blocks in a file or directory.
+```
+npm run lumen -- test <path>
+```
+
+### defs
+Find definition of a symbol across transitive imports.
+```
+npm run lumen -- defs <file> <symbol>
+```
+
+### cache
+Clear build cache.
+```
+npm run lumen -- cache clear
+```
+
+## Common flags
+- `--deny e1,e2` or policy file to gate effects
+- `--mock-effects` to use deterministic mocks for time/net/etc.
+- `--seed` (trace) and `--scheduler-seed` (trace/run) to control determinism
+
+## Examples
+- Run with policy (deny net):
+```
+npm run lumen -- run examples/http/service.lum --policy examples/policy/lumen.json --strict-warn
+```
+- Hash a trace with seed:
+```
+npm run lumen -- trace examples/actors/adder.lum --seed ABC --hash-only
+```
+- Generate TS types:
+```
+npm run lumen -- emit examples/data/sqlite_real_example.lum --ts
+```
