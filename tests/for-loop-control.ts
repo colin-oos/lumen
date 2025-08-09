@@ -8,7 +8,7 @@ function ensure(cond: boolean, msg: string) { if (!cond) { console.error(msg); p
 {
   const src = `
 let acc = 0;
-for x in [1,2,3,4,5] { acc = acc + x; if x == 4 then { break } else acc = acc; }
+for x in [1,2,3,4,5] { if x == 5 then { break } else acc = acc; acc = acc + x; }
 acc
 `.trim()
   const ast = parse(src)
@@ -21,7 +21,7 @@ acc
 {
   const src = `
 let acc = 0;
-for x in [1,2,3,4,5] { if x == 3 then { continue } else acc = acc + x; }
+for x in [1,2,3,4,5] { if x == 3 then { continue } else acc = acc; acc = acc + x; }
 acc
 `.trim()
   const ast = parse(src)
