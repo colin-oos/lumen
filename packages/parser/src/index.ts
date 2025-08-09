@@ -363,18 +363,19 @@ export function parse(source: string): Expr {
   const decls: Expr[] = []
   const reserved = new Set(['actor','and','as','assert','break','case','continue','data','effect','else','false','fn','from','import','in','let','match','module','mut','not','on','or','query','raises','return','schema','select','source','spawn','spec','state','stream','true','unit','view','where','with'])
   function isReservedName(name: string): boolean { return reserved.has(name) }
+  function colFor(lineIdx: number): number { const raw = rawLines[lineIdx] || ''; const m = raw.match(/^\s*/); return (m ? m[0].length : 0) + 1 }
   for (let idx = 0; idx < lines.length; idx++) {
     const ln = lines[idx]
     if (ln.startsWith('module ')) {
       const m = ln.match(/^module\s+([A-Za-z_][A-Za-z0-9_]*)$/)
-      if (m) { decls.push({ kind: 'ModuleDecl', sid: sid('module'), name: m[1], span: { start: 0, end: 0, line: idx + 1 } } as any); continue }
+      if (m) { decls.push({ kind: 'ModuleDecl', sid: sid('module'), name: m[1], span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } } as any); continue }
     }
     if (ln.startsWith('import ')) {
       // import "path"  |  import name [as alias]
       let m = ln.match(/^import\s+"([^"]+)"$/)
-      if (m) { decls.push({ kind: 'ImportDecl', sid: sid('import'), path: m[1], span: { start: 0, end: 0, line: idx + 1 } } as any); continue }
+      if (m) { decls.push({ kind: 'ImportDecl', sid: sid('import'), path: m[1], span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } } as any); continue }
       m = ln.match(/^import\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?$/)
-      if (m) { decls.push({ kind: 'ImportDecl', sid: sid('import'), path: m[1], name: m[1], alias: m[2], span: { start: 0, end: 0, line: idx + 1 } } as any); continue }
+      if (m) { decls.push({ kind: 'ImportDecl', sid: sid('import'), path: m[1], name: m[1], alias: m[2], span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } } as any); continue }
     }
     if (ln.startsWith('enum ')) {
       const m = ln.match(/^enum\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/)
@@ -388,7 +389,7 @@ export function parse(source: string): Expr {
           const params = (mm?.[2] || '').trim() ? (mm![2].split(',').map(x => x.trim()).filter(Boolean)) : []
           return { name: vname, params }
         })
-        decls.push({ kind: 'EnumDecl', sid: sid('enum'), name, variants, span: { start: 0, end: 0, line: idx + 1 } } as any)
+        decls.push({ kind: 'EnumDecl', sid: sid('enum'), name, variants, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } } as any)
         continue
       }
     }
@@ -419,13 +420,13 @@ export function parse(source: string): Expr {
           if (hm) { handlers.push({ pattern: parsePattern(hm[1]), body: parseExprRD(hm[2]) }); continue }
         }
       }
-      decls.push({ kind: 'ActorDeclNew', sid: sid('actorN'), name, state, handlers, effects: new Set(), span: { start: 0, end: 0, line: idx + 1 } } as any)
+      decls.push({ kind: 'ActorDeclNew', sid: sid('actorN'), name, state, handlers, effects: new Set(), span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } } as any)
       continue
     }
     // mut decl
     if (ln.startsWith('mut ')) {
       const m = ln.match(/^mut\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/)
-      if (m) { if (isReservedName(m[1])) { continue } decls.push({ kind: 'Let', sid: sid('let'), name: m[1], type: m[2] || undefined, expr: parseExprRD(m[3]), mutable: true, span: { start: 0, end: 0, line: idx + 1 } } as any); continue }
+      if (m) { if (isReservedName(m[1])) { continue } decls.push({ kind: 'Let', sid: sid('let'), name: m[1], type: m[2] || undefined, expr: parseExprRD(m[3]), mutable: true, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } } as any); continue }
     }
     if (ln.startsWith('let ')) {
       // let name[: Type]? = expr
@@ -437,7 +438,7 @@ export function parse(source: string): Expr {
           let depth = (rhs.match(/\{/g) || []).length - (rhs.match(/\}/g) || []).length
           while (depth > 0 && idx + 1 < lines.length) { idx++; rhs += '\n' + lines[idx]; depth += (lines[idx].match(/\{/g) || []).length - (lines[idx].match(/\}/g) || []).length }
         }
-        decls.push({ kind: 'Let', sid: sid('let'), name: m[1], type: m[2] || undefined, expr: parseExprRD(rhs), span: { start: 0, end: 0, line: idx + 1 } } as any)
+        decls.push({ kind: 'Let', sid: sid('let'), name: m[1], type: m[2] || undefined, expr: parseExprRD(rhs), span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } } as any)
         continue
       }
     }
@@ -460,7 +461,7 @@ export function parse(source: string): Expr {
         const effects = new Set<string>() as any
         const raises = (m[4] ?? '').trim()
         if (raises) for (const eff of raises.split(',').map(s => s.trim()).filter(Boolean)) effects.add(eff)
-        decls.push({ kind: 'Fn', sid: sid('fn'), name: m[1], params, returnType, body, effects, span: { start: 0, end: 0, line: idx + 1 } } as any)
+        decls.push({ kind: 'Fn', sid: sid('fn'), name: m[1], params, returnType, body, effects, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } } as any)
         continue
       }
     }
@@ -475,23 +476,23 @@ export function parse(source: string): Expr {
         const raises = (m[4] ?? '').trim()
         if (raises) for (const eff of raises.split(',').map(s => s.trim()).filter(Boolean)) effects.add(eff)
         const body = parseExprRD(m[5])
-        decls.push({ kind: 'ActorDecl', sid: sid('actor'), name, param, body, effects, span: { start: 0, end: 0, line: idx + 1 } } as any)
+        decls.push({ kind: 'ActorDecl', sid: sid('actor'), name, param, body, effects, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } } as any)
         continue
       }
     }
     if (ln.startsWith('spawn ')) {
       const m = ln.match(/^spawn\s+([A-Za-z_][A-Za-z0-9_.]*)$/)
-      if (m) { if (isReservedName(m[1])) { continue } decls.push({ kind: 'Spawn', sid: sid('spawn'), actorName: m[1], span: { start: 0, end: 0, line: idx + 1 } } as any); continue }
+      if (m) { if (isReservedName(m[1])) { continue } decls.push({ kind: 'Spawn', sid: sid('spawn'), actorName: m[1], span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } } as any); continue }
     }
     if (ln.startsWith('send ')) {
       let m = ln.match(/^send\s+([^,\s]+)\s*,\s*(.+)$/)
       if (!m) m = ln.match(/^send\s+([^\s]+)\s+(.+)$/)
-      if (m) { decls.push({ kind: 'Send', sid: sid('send'), actor: parseExprRD(m[1]), message: parseExprRD(m[2]), span: { start: 0, end: 0, line: idx + 1 } } as any); continue }
+      if (m) { decls.push({ kind: 'Send', sid: sid('send'), actor: parseExprRD(m[1]), message: parseExprRD(m[2]), span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } } as any); continue }
     }
     if (ln.startsWith('ask ')) {
       let m = ln.match(/^ask\s+([^,\s]+)\s*,\s*([^,\s]+)(?:\s*,\s*(\d+))?$/)
       if (!m) m = ln.match(/^ask\s+([^\s]+)\s+([^,\s]+)(?:\s*,\s*(\d+))?$/)
-      if (m) { const actor = parseExprRD(m[1]); const msg = parseExprRD(m[2]); const timeout = m[3] ? Number(m[3]) : undefined; decls.push({ kind: 'Ask', sid: sid('ask'), actor, message: msg, timeoutMs: timeout, span: { start: 0, end: 0, line: idx + 1 } } as any); continue }
+      if (m) { const actor = parseExprRD(m[1]); const msg = parseExprRD(m[2]); const timeout = m[3] ? Number(m[3]) : undefined; decls.push({ kind: 'Ask', sid: sid('ask'), actor, message: msg, timeoutMs: timeout, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } } as any); continue }
     }
     if (ln.startsWith('match ')) {
       let mm = ln.match(/^match\s+(.+)\s*\{$/)
@@ -508,7 +509,7 @@ export function parse(source: string): Expr {
           cm = trimmed.match(/^(.+?)\s*->\s*(.+)$/)
           if (cm) { cases.push({ pattern: parsePattern(cm[1]), body: parseExprRD(cm[2]) }); continue }
         }
-        decls.push({ kind: 'Match', sid: sid('match'), scrutinee: scr, cases, span: { start: 0, end: 0, line: idx + 1 } } as any)
+        decls.push({ kind: 'Match', sid: sid('match'), scrutinee: scr, cases, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } } as any)
         continue
       }
       mm = ln.match(/^match\s+(.+)$/)
@@ -526,7 +527,7 @@ export function parse(source: string): Expr {
             cm = trimmed.match(/^(.+?)\s*->\s*(.+)$/)
             if (cm) { cases.push({ pattern: parsePattern(cm[1]), body: parseExprRD(cm[2]) }); continue }
           }
-          decls.push({ kind: 'Match', sid: sid('match'), scrutinee: scr, cases, span: { start: 0, end: 0, line: idx + 1 } } as any)
+          decls.push({ kind: 'Match', sid: sid('match'), scrutinee: scr, cases, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } } as any)
           continue
         }
       }
@@ -544,7 +545,7 @@ export function parse(source: string): Expr {
           const fm = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*,?$/)
           if (fm) fields[fm[1]] = fm[2]
         }
-        decls.push({ kind: 'SchemaDecl', sid: sid('schema'), name, fields, span: { start: 0, end: 0, line: idx + 1 } } as any)
+        decls.push({ kind: 'SchemaDecl', sid: sid('schema'), name, fields, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } } as any)
         continue
       }
     }
@@ -560,7 +561,7 @@ export function parse(source: string): Expr {
           const am = line.match(/^assert\s*\(\s*(.+)\s*,\s*"([^"]*)"\s*\)\s*;?$/)
           if (am) asserts.push({ expr: parseExprRD(am[1]), message: am[2] })
         }
-        decls.push({ kind: 'SpecDecl', sid: sid('spec'), name, asserts, span: { start: 0, end: 0, line: idx + 1 } } as any)
+        decls.push({ kind: 'SpecDecl', sid: sid('spec'), name, asserts, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } } as any)
         continue
       }
     }
@@ -577,14 +578,14 @@ export function parse(source: string): Expr {
           const sm = withExpr.match(/^persist\(\s*"([^"]+)"\s*\)$/) || withExpr.match(/^"([^"]+)"$/)
           if (sm) config = sm[1]
         }
-        decls.push({ kind: 'StoreDecl', sid: sid('store'), name, schema, config, span: { start: 0, end: 0, line: idx + 1 } } as any)
+        decls.push({ kind: 'StoreDecl', sid: sid('store'), name, schema, config, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } } as any)
         continue
       }
     }
     if (ln.startsWith('store ')) {
       // legacy store Name : Schema = "config"
       const m = ln.match(/^store\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:=\s*"([^"]*)")?$/)
-      if (m) { if (isReservedName(m[1])) { continue } decls.push({ kind: 'StoreDecl', sid: sid('store'), name: m[1], schema: m[2], config: m[3] ?? null, span: { start: 0, end: 0, line: idx + 1 } } as any); continue }
+      if (m) { if (isReservedName(m[1])) { continue } decls.push({ kind: 'StoreDecl', sid: sid('store'), name: m[1], schema: m[2], config: m[3] ?? null, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } } as any); continue }
     }
     if (ln.startsWith('query ')) {
       // Support both: single-line form and comprehension block form
@@ -599,7 +600,7 @@ export function parse(source: string): Expr {
         const select = m[4] || (m[3] && !m[4] ? m[3] : undefined)
         const predicate = where ? parseExprRD(where) : undefined
         const projection = select ? select.split(',').map(s => s.trim()).filter(Boolean) : undefined
-        decls.push({ kind: 'QueryDecl', sid: sid('query'), name, source, predicate, projection, span: { start: 0, end: 0, line: idx + 1 } } as any)
+        decls.push({ kind: 'QueryDecl', sid: sid('query'), name, source, predicate, projection, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } } as any)
         continue
       }
       // 2) query Name() = from x in store.stream() [where expr] select expr
@@ -627,13 +628,13 @@ export function parse(source: string): Expr {
           projection = fields.length ? fields : undefined
         }
         const predicate = whereExpr ? parseExprRD(whereExpr.replace(new RegExp('^' + alias + '\\.', 'g'), '')) : undefined
-        decls.push({ kind: 'QueryDecl', sid: sid('query'), name, source, predicate, projection, span: { start: 0, end: 0, line: idx + 1 } } as any)
+        decls.push({ kind: 'QueryDecl', sid: sid('query'), name, source, predicate, projection, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } } as any)
         continue
       }
     }
     // Fallback: treat as bare expression declaration by synthesizing a let _N
     const name = `tmp_${decls.length}`
-    decls.push({ kind: 'Let', sid: sid('let'), name, expr: parseExprRD(ln), span: { start: 0, end: 0, line: idx + 1 } })
+    decls.push({ kind: 'Let', sid: sid('let'), name, expr: parseExprRD(ln), span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } })
   }
   return { kind: 'Program', sid: sid('prog'), decls }
 }
