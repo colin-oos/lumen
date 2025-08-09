@@ -467,8 +467,6 @@ function parseExprRD(src) {
                 const right = parseAnd();
                 left = { kind: 'Binary', sid: (0, core_ir_1.sid)('bin'), op: 'or', left, right };
             }
-            else
-                break;
         }
         return left;
     }
@@ -485,7 +483,7 @@ function parse(source) {
         if (ln.startsWith('module ')) {
             const m = ln.match(/^module\s+([A-Za-z_][A-Za-z0-9_]*)$/);
             if (m) {
-                decls.push({ kind: 'ModuleDecl', sid: (0, core_ir_1.sid)('module'), name: m[1] });
+                decls.push({ kind: 'ModuleDecl', sid: (0, core_ir_1.sid)('module'), name: m[1], span: { start: 0, end: 0, line: idx + 1 } });
                 continue;
             }
         }
@@ -493,12 +491,12 @@ function parse(source) {
             // import "path"  |  import name [as alias]
             let m = ln.match(/^import\s+"([^"]+)"$/);
             if (m) {
-                decls.push({ kind: 'ImportDecl', sid: (0, core_ir_1.sid)('import'), path: m[1] });
+                decls.push({ kind: 'ImportDecl', sid: (0, core_ir_1.sid)('import'), path: m[1], span: { start: 0, end: 0, line: idx + 1 } });
                 continue;
             }
             m = ln.match(/^import\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?$/);
             if (m) {
-                decls.push({ kind: 'ImportDecl', sid: (0, core_ir_1.sid)('import'), path: m[1], name: m[1], alias: m[2] });
+                decls.push({ kind: 'ImportDecl', sid: (0, core_ir_1.sid)('import'), path: m[1], name: m[1], alias: m[2], span: { start: 0, end: 0, line: idx + 1 } });
                 continue;
             }
         }
@@ -513,7 +511,7 @@ function parse(source) {
                     const params = (mm?.[2] || '').trim() ? (mm[2].split(',').map(x => x.trim()).filter(Boolean)) : [];
                     return { name: vname, params };
                 });
-                decls.push({ kind: 'EnumDecl', sid: (0, core_ir_1.sid)('enum'), name, variants });
+                decls.push({ kind: 'EnumDecl', sid: (0, core_ir_1.sid)('enum'), name, variants, span: { start: 0, end: 0, line: idx + 1 } });
                 continue;
             }
         }
@@ -559,14 +557,14 @@ function parse(source) {
                     }
                 }
             }
-            decls.push({ kind: 'ActorDeclNew', sid: (0, core_ir_1.sid)('actorN'), name, state, handlers, effects: new Set() });
+            decls.push({ kind: 'ActorDeclNew', sid: (0, core_ir_1.sid)('actorN'), name, state, handlers, effects: new Set(), span: { start: 0, end: 0, line: idx + 1 } });
             continue;
         }
         // mut decl
         if (ln.startsWith('mut ')) {
             const m = ln.match(/^mut\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/);
             if (m) {
-                decls.push({ kind: 'Let', sid: (0, core_ir_1.sid)('let'), name: m[1], type: m[2] || undefined, expr: parseExprRD(m[3]), mutable: true });
+                decls.push({ kind: 'Let', sid: (0, core_ir_1.sid)('let'), name: m[1], type: m[2] || undefined, expr: parseExprRD(m[3]), mutable: true, span: { start: 0, end: 0, line: idx + 1 } });
                 continue;
             }
         }
@@ -583,13 +581,13 @@ function parse(source) {
                         depth += (lines[idx].match(/\{/g) || []).length - (lines[idx].match(/\}/g) || []).length;
                     }
                 }
-                decls.push({ kind: 'Let', sid: (0, core_ir_1.sid)('let'), name: m[1], type: m[2] || undefined, expr: parseExprRD(rhs) });
+                decls.push({ kind: 'Let', sid: (0, core_ir_1.sid)('let'), name: m[1], type: m[2] || undefined, expr: parseExprRD(rhs), span: { start: 0, end: 0, line: idx + 1 } });
                 continue;
             }
         }
         if (ln.startsWith('fn ')) {
             // fn name(params[:Type, ...])[:Return]? [raises e1, e2] = expr
-            const m = ln.match(/^fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*(?::\s*([A-Za-z_][A-Za-z0-9_]*))?\s*(?:raises\s+([^=]+))?=\s*(.+)$/);
+            const m = ln.match(/^fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*(?::\s*([A-Za-z_][A-Za-z0-9_]*))?\s*(?:raises\s+([^=]+))?\s*=\s*(.+)$/);
             if (m) {
                 const params = m[2].trim() === '' ? [] : m[2].split(',').map(s => s.trim()).map(p => {
                     const pm = p.match(/^([A-Za-z_][A-Za-z0-9_]*)(?:\s*:\s*([A-Za-z_][A-Za-z0-9_]*))?$/);
@@ -611,13 +609,13 @@ function parse(source) {
                 if (raises)
                     for (const eff of raises.split(',').map(s => s.trim()).filter(Boolean))
                         effects.add(eff);
-                decls.push({ kind: 'Fn', sid: (0, core_ir_1.sid)('fn'), name: m[1], params, returnType, body, effects });
+                decls.push({ kind: 'Fn', sid: (0, core_ir_1.sid)('fn'), name: m[1], params, returnType, body, effects, span: { start: 0, end: 0, line: idx + 1 } });
                 continue;
             }
         }
         if (ln.startsWith('actor ')) {
             // actor Name[(param[:Type])]? [raises e1,e2] = expr
-            const m = ln.match(/^actor\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(([^:)]+)(?::\s*([A-Za-z_][A-Za-z0-9_]*))?\))?\s*(?:raises\s+([^=]+))?=\s*(.+)$/);
+            const m = ln.match(/^actor\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(([^:)]+)(?::\s*([A-Za-z_][A-Za-z0-9_]*))?\))?\s*(?:raises\s+([^=]+))?\s*=\s*(.+)$/);
             if (m) {
                 const name = m[1];
                 const param = m[2] ? { name: m[2], type: m[3] || undefined } : null;
@@ -627,14 +625,14 @@ function parse(source) {
                     for (const eff of raises.split(',').map(s => s.trim()).filter(Boolean))
                         effects.add(eff);
                 const body = parseExprRD(m[5]);
-                decls.push({ kind: 'ActorDecl', sid: (0, core_ir_1.sid)('actor'), name, param, body, effects });
+                decls.push({ kind: 'ActorDecl', sid: (0, core_ir_1.sid)('actor'), name, param, body, effects, span: { start: 0, end: 0, line: idx + 1 } });
                 continue;
             }
         }
         if (ln.startsWith('spawn ')) {
             const m = ln.match(/^spawn\s+([A-Za-z_][A-Za-z0-9_.]*)$/);
             if (m) {
-                decls.push({ kind: 'Spawn', sid: (0, core_ir_1.sid)('spawn'), actorName: m[1] });
+                decls.push({ kind: 'Spawn', sid: (0, core_ir_1.sid)('spawn'), actorName: m[1], span: { start: 0, end: 0, line: idx + 1 } });
                 continue;
             }
         }
@@ -643,7 +641,7 @@ function parse(source) {
             if (!m)
                 m = ln.match(/^send\s+([^\s]+)\s+(.+)$/);
             if (m) {
-                decls.push({ kind: 'Send', sid: (0, core_ir_1.sid)('send'), actor: parseExprRD(m[1]), message: parseExprRD(m[2]) });
+                decls.push({ kind: 'Send', sid: (0, core_ir_1.sid)('send'), actor: parseExprRD(m[1]), message: parseExprRD(m[2]), span: { start: 0, end: 0, line: idx + 1 } });
                 continue;
             }
         }
@@ -655,7 +653,7 @@ function parse(source) {
                 const actor = parseExprRD(m[1]);
                 const msg = parseExprRD(m[2]);
                 const timeout = m[3] ? Number(m[3]) : undefined;
-                decls.push({ kind: 'Ask', sid: (0, core_ir_1.sid)('ask'), actor, message: msg, timeoutMs: timeout });
+                decls.push({ kind: 'Ask', sid: (0, core_ir_1.sid)('ask'), actor, message: msg, timeoutMs: timeout, span: { start: 0, end: 0, line: idx + 1 } });
                 continue;
             }
         }
@@ -681,7 +679,7 @@ function parse(source) {
                         continue;
                     }
                 }
-                decls.push({ kind: 'Match', sid: (0, core_ir_1.sid)('match'), scrutinee: scr, cases });
+                decls.push({ kind: 'Match', sid: (0, core_ir_1.sid)('match'), scrutinee: scr, cases, span: { start: 0, end: 0, line: idx + 1 } });
                 continue;
             }
             mm = ln.match(/^match\s+(.+)$/);
@@ -706,7 +704,7 @@ function parse(source) {
                             continue;
                         }
                     }
-                    decls.push({ kind: 'Match', sid: (0, core_ir_1.sid)('match'), scrutinee: scr, cases });
+                    decls.push({ kind: 'Match', sid: (0, core_ir_1.sid)('match'), scrutinee: scr, cases, span: { start: 0, end: 0, line: idx + 1 } });
                     continue;
                 }
             }
@@ -725,7 +723,7 @@ function parse(source) {
                     if (fm)
                         fields[fm[1]] = fm[2];
                 }
-                decls.push({ kind: 'SchemaDecl', sid: (0, core_ir_1.sid)('schema'), name, fields });
+                decls.push({ kind: 'SchemaDecl', sid: (0, core_ir_1.sid)('schema'), name, fields, span: { start: 0, end: 0, line: idx + 1 } });
                 continue;
             }
         }
@@ -743,18 +741,38 @@ function parse(source) {
                     if (am)
                         asserts.push({ expr: parseExprRD(am[1]), message: am[2] });
                 }
-                decls.push({ kind: 'SpecDecl', sid: (0, core_ir_1.sid)('spec'), name, asserts });
+                decls.push({ kind: 'SpecDecl', sid: (0, core_ir_1.sid)('spec'), name, asserts, span: { start: 0, end: 0, line: idx + 1 } });
                 continue;
             }
         }
-        if (ln.startsWith('source ') || ln.startsWith('store ')) {
-            const m = ln.match(/^(?:source|store)\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:=\s*"([^"]*)")?$/);
+        if (ln.startsWith('source ')) {
+            // source tasks: Store<User> with persist("sqlite:...")
+            const m = ln.match(/^source\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*Store<([A-Za-z_][A-Za-z0-9_]*)>\s*(?:with\s+(.+))?$/);
             if (m) {
-                decls.push({ kind: 'StoreDecl', sid: (0, core_ir_1.sid)('store'), name: m[1], schema: m[2], config: m[3] ?? null });
+                const name = m[1];
+                const schema = m[2];
+                let config = null;
+                const withExpr = (m[3] || '').trim();
+                if (withExpr) {
+                    const sm = withExpr.match(/^persist\(\s*"([^"]+)"\s*\)$/) || withExpr.match(/^"([^"]+)"$/);
+                    if (sm)
+                        config = sm[1];
+                }
+                decls.push({ kind: 'StoreDecl', sid: (0, core_ir_1.sid)('store'), name, schema, config, span: { start: 0, end: 0, line: idx + 1 } });
+                continue;
+            }
+        }
+        if (ln.startsWith('store ')) {
+            // legacy store Name : Schema = "config"
+            const m = ln.match(/^store\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:=\s*"([^"]*)")?$/);
+            if (m) {
+                decls.push({ kind: 'StoreDecl', sid: (0, core_ir_1.sid)('store'), name: m[1], schema: m[2], config: m[3] ?? null, span: { start: 0, end: 0, line: idx + 1 } });
                 continue;
             }
         }
         if (ln.startsWith('query ')) {
+            // Support both: single-line form and comprehension block form
+            // 1) query Name from Store where <expr> select a,b
             let m = ln.match(/^query\s+([A-Za-z_][A-Za-z0-9_]*)\s+from\s+([A-Za-z_][A-Za-z0-9_]*)\s+where\s+(.+)\s+select\s+(.+)$/);
             if (!m)
                 m = ln.match(/^query\s+([A-Za-z_][A-Za-z0-9_]*)\s+from\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+select\s+(.+))?$/);
@@ -765,13 +783,44 @@ function parse(source) {
                 const select = m[4] || (m[3] && !m[4] ? m[3] : undefined);
                 const predicate = where ? parseExprRD(where) : undefined;
                 const projection = select ? select.split(',').map(s => s.trim()).filter(Boolean) : undefined;
-                decls.push({ kind: 'QueryDecl', sid: (0, core_ir_1.sid)('query'), name, source, predicate, projection });
+                decls.push({ kind: 'QueryDecl', sid: (0, core_ir_1.sid)('query'), name, source, predicate, projection, span: { start: 0, end: 0, line: idx + 1 } });
+                continue;
+            }
+            // 2) query Name() = from x in store.stream() [where expr] select expr
+            const mc = ln.match(/^query\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(\)\s*=\s*from\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+(.+?)\s*(?:where\s+(.+?))?\s*select\s+(.+)$/);
+            if (mc) {
+                const name = mc[1];
+                const alias = mc[2];
+                const srcExpr = mc[3];
+                const whereExpr = mc[4];
+                const selectExpr = mc[5];
+                // try to reduce srcExpr to a store name optionally ending with .stream()
+                let source = srcExpr.trim();
+                const sm = source.match(/^([A-Za-z_][A-Za-z0-9_]*)(?:\.stream\(\))?$/);
+                source = sm ? sm[1] : source;
+                // very basic handling: if select is alias.field list split on ','; if 'alias' alone, projection undefined
+                let projection;
+                const trimmedSel = selectExpr.trim();
+                if (trimmedSel === alias)
+                    projection = undefined;
+                else if (trimmedSel.startsWith(alias + '.'))
+                    projection = [trimmedSel.slice(alias.length + 1)];
+                else if (trimmedSel.includes(',')) {
+                    const parts = trimmedSel.split(',').map(s => s.trim());
+                    const fields = [];
+                    for (const p of parts)
+                        if (p.startsWith(alias + '.'))
+                            fields.push(p.slice(alias.length + 1));
+                    projection = fields.length ? fields : undefined;
+                }
+                const predicate = whereExpr ? parseExprRD(whereExpr.replace(new RegExp('^' + alias + '\\.', 'g'), '')) : undefined;
+                decls.push({ kind: 'QueryDecl', sid: (0, core_ir_1.sid)('query'), name, source, predicate, projection, span: { start: 0, end: 0, line: idx + 1 } });
                 continue;
             }
         }
         // Fallback: treat as bare expression declaration by synthesizing a let _N
         const name = `tmp_${decls.length}`;
-        decls.push({ kind: 'Let', sid: (0, core_ir_1.sid)('let'), name, expr: parseExprRD(ln) });
+        decls.push({ kind: 'Let', sid: (0, core_ir_1.sid)('let'), name, expr: parseExprRD(ln), span: { start: 0, end: 0, line: idx + 1 } });
     }
     return { kind: 'Program', sid: (0, core_ir_1.sid)('prog'), decls };
 }

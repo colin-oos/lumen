@@ -109,6 +109,15 @@ async function main() {
     }
     return
   }
+  if (cmd === 'defs') {
+    const file = resolved
+    const symbol = rest[0]
+    if (!symbol) { console.error('usage: lumen defs <file> <symbol>'); process.exit(1) }
+    const ast = loadWithImports(file)
+    const def = getDefinition(ast, symbol)
+    console.log(JSON.stringify(def, null, 2))
+    return
+  }
   if (cmd === 'serve') {
     // Simple newline-delimited JSON protocol
     // Request: { action: 'hover'|'diagnostics', file?: string, source?: string, symbol?: string }
@@ -174,7 +183,15 @@ async function main() {
             }
             process.stdout.write(JSON.stringify({ ok: true, symbols }) + '\n')
           } else {
-            process.stdout.write(JSON.stringify({ ok: false, error: 'unknown action' }) + '\n')
+            if (req.action === 'definitions' || req.action === 'definition' || req.action === 'defs') {
+              const file = req.file ? path.resolve(req.file) : null
+              const ast = file ? loadWithImports(file) : parse(src)
+              const sym = String(req.symbol || '')
+              const def = getDefinition(ast, sym)
+              process.stdout.write(JSON.stringify({ ok: true, definition: def }) + '\n')
+            } else {
+              process.stdout.write(JSON.stringify({ ok: false, error: 'unknown action' }) + '\n')
+            }
           }
         } catch (e) {
           process.stdout.write(JSON.stringify({ ok: false, error: String(e) }) + '\n')
@@ -826,6 +843,25 @@ function getModuleName(ast: any): string | null {
   if (ast.kind !== 'Program') return null
   for (const d of ast.decls) if (d.kind === 'ModuleDecl') return d.name
   return null
+}
+
+function getDefinition(ast: any, symbol: string): { kind?: string, name?: string, file?: string, line?: number } {
+  const lastSeg = symbol.includes('.') ? symbol.split('.').pop() as string : symbol
+  let currentModule: string | null = null
+  const defs: Array<{ kind: string, name: string, module?: string, line?: number }> = []
+  if (ast.kind === 'Program') {
+    for (const d of ast.decls) {
+      if (d.kind === 'ModuleDecl') { currentModule = d.name; continue }
+      if (d.kind === 'EnumDecl') defs.push({ kind: 'enum', name: d.name, module: currentModule || undefined, line: d.span?.line })
+      if (d.kind === 'Fn' && d.name) defs.push({ kind: 'function', name: currentModule ? `${currentModule}.${d.name}` : d.name, module: currentModule || undefined, line: d.span?.line })
+      if (d.kind === 'StoreDecl') defs.push({ kind: 'store', name: currentModule ? `${currentModule}.${d.name}` : d.name, module: currentModule || undefined, line: d.span?.line })
+      if (d.kind === 'QueryDecl') defs.push({ kind: 'query', name: currentModule ? `${currentModule}.${d.name}` : d.name, module: currentModule || undefined, line: d.span?.line })
+      if (d.kind === 'ActorDecl' || d.kind === 'ActorDeclNew') defs.push({ kind: 'actor', name: currentModule ? `${currentModule}.${d.name}` : d.name, module: currentModule || undefined, line: d.span?.line })
+    }
+  }
+  const match = defs.find(d => d.name === symbol || d.name === lastSeg || (d.name.endsWith('.' + lastSeg)))
+  if (!match) return {}
+  return { kind: match.kind, name: match.name, line: match.line }
 }
 
 function prefixWithModule(files: Array<{ path: string, ast: any }>, name: string): string[] {
