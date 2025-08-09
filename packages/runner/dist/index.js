@@ -5,6 +5,14 @@ const sqlite_1 = require("./adapters/sqlite");
 const http_1 = require("./adapters/http");
 const LOOP_BREAK = Symbol.for('lumen.break');
 const LOOP_CONTINUE = Symbol.for('lumen.continue');
+function hash32(s) {
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 16777619) >>> 0;
+    }
+    return h >>> 0;
+}
 function run(ast, options) {
     const trace = [];
     const env = new Map();
@@ -55,11 +63,20 @@ function run(ast, options) {
     }
     function processMailboxesUntil(predicate) {
         let progressed = true;
+        let tick = 0;
+        const seed = options?.schedulerSeed ?? '';
         while (progressed) {
             if (predicate && predicate())
                 return;
             progressed = false;
-            for (const [name, queue] of mailboxes) {
+            // deterministically order actor names per tick using seed
+            const entries = Array.from(mailboxes.entries());
+            entries.sort((a, b) => {
+                const ha = hash32(a[0] + ':' + tick + ':' + seed);
+                const hb = hash32(b[0] + ':' + tick + ':' + seed);
+                return ha - hb;
+            });
+            for (const [name, queue] of entries) {
                 if (!queue.length)
                     continue;
                 const msgObj = wrapMessage(queue.shift());
@@ -153,6 +170,7 @@ function run(ast, options) {
                     }
                 }
             }
+            tick++;
         }
     }
     function truthy(b) { return Boolean(b); }

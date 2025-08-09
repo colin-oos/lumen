@@ -10,7 +10,13 @@ export interface RunResult {
 const LOOP_BREAK = Symbol.for('lumen.break')
 const LOOP_CONTINUE = Symbol.for('lumen.continue')
 
-export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffects?: boolean }): RunResult {
+function hash32(s: string): number {
+  let h = 2166136261 >>> 0
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0 }
+  return h >>> 0
+}
+
+export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffects?: boolean, schedulerSeed?: string }): RunResult {
   const trace: RunResult['trace'] = []
   const env = new Map<string, unknown>()
   let currentModule: string | null = null
@@ -53,10 +59,19 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
 
   function processMailboxesUntil(predicate?: () => boolean): void {
     let progressed = true
+    let tick = 0
+    const seed = options?.schedulerSeed ?? ''
     while (progressed) {
       if (predicate && predicate()) return
       progressed = false
-      for (const [name, queue] of mailboxes) {
+      // deterministically order actor names per tick using seed
+      const entries = Array.from(mailboxes.entries())
+      entries.sort((a, b) => {
+        const ha = hash32(a[0] + ':' + tick + ':' + seed)
+        const hb = hash32(b[0] + ':' + tick + ':' + seed)
+        return ha - hb
+      })
+      for (const [name, queue] of entries) {
         if (!queue.length) continue
         const msgObj = wrapMessage(queue.shift() as any)
         const actor = actors.get(name)
@@ -115,6 +130,7 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
           }
         }
       }
+      tick++
     }
   }
 
