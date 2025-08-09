@@ -71,4 +71,4 @@ The implementation is feature-complete for building complex apps. Determinism is
 
 ## License
 
-MIT
+Apache-2.0
