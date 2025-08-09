@@ -50,6 +50,10 @@ function nodeSignature(e) {
         case 'Unary': return `Unary:${e.op}:${e.expr.sid ?? '?'}`;
         case 'Binary': return `Binary:${e.op}:${e.left.sid ?? '?'}:${e.right.sid ?? '?'}`;
         case 'If': return `If:${e.cond.sid ?? '?'}:${e.then.sid ?? '?'}:${e.else.sid ?? '?'}`;
+        case 'While': return `While:${e.cond.sid ?? '?'}:${e.body.sid ?? '?'}`;
+        case 'For': return `For:${e.name}:${e.iter.sid ?? '?'}:${e.body.sid ?? '?'}`;
+        case 'Break': return `Break`;
+        case 'Continue': return `Continue`;
         case 'EffectCall': return `EffectCall:${e.effect}:${e.op}(${e.args.map(a => a.sid ?? '?').join(',')})`;
         case 'RecordLit': return `RecordLit:{${e.fields.map(f => `${f.name}:${f.expr.sid ?? '?'}`).join(',')}}`;
         case 'TupleLit': return `TupleLit:(${e.elements.map(a => a.sid ?? '?').join(',')})`;
@@ -109,6 +113,16 @@ function assignStableSids(e) {
             assignStableSids(e.then);
             assignStableSids(e.else);
             break;
+        case 'While':
+            assignStableSids(e.cond);
+            assignStableSids(e.body);
+            break;
+        case 'For':
+            assignStableSids(e.iter);
+            assignStableSids(e.body);
+            break;
+        case 'Break': break;
+        case 'Continue': break;
         case 'Block':
             for (const s of e.stmts)
                 assignStableSids(s);

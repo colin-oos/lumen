@@ -159,6 +159,103 @@ function parseExprRD(src) {
     }
     function parsePrimary() {
         lx.eatWs();
+        // while loop
+        if (lx.eatKeyword('while')) {
+            const start = { line: lx.line, col: lx.col };
+            const cond = parseOr();
+            lx.eatWs();
+            let body;
+            if (lx.peek() === '{') {
+                lx.next();
+                const stmts = [];
+                while (!lx.eof() && lx.peek() !== '}') {
+                    let depth = 0;
+                    let buf = '';
+                    while (!lx.eof()) {
+                        const ch = lx.peek();
+                        if (ch === '{')
+                            depth++;
+                        if (ch === '}') {
+                            if (depth === 0)
+                                break;
+                            depth--;
+                        }
+                        if (ch === ';' && depth === 0) {
+                            lx.next();
+                            break;
+                        }
+                        buf += lx.next();
+                    }
+                    const stmt = buf.trim();
+                    if (stmt.length > 0)
+                        stmts.push(parseExprRD(stmt));
+                    lx.eatWs();
+                }
+                if (lx.peek() === '}')
+                    lx.next();
+                body = { kind: 'Block', sid: (0, core_ir_1.sid)('block'), stmts };
+            }
+            else {
+                body = parsePrimary();
+            }
+            return withSpan({ kind: 'While', sid: (0, core_ir_1.sid)('while'), cond, body }, start);
+        }
+        // for loop: for name in expr { ... }
+        if (lx.eatKeyword('for')) {
+            const start = { line: lx.line, col: lx.col };
+            lx.eatWs();
+            let name = '';
+            while (/[A-Za-z0-9_]/.test(lx.peek()))
+                name += lx.next();
+            lx.eatWs();
+            lx.eatKeyword('in');
+            lx.eatWs();
+            const iter = parseOr();
+            lx.eatWs();
+            let body;
+            if (lx.peek() === '{') {
+                lx.next();
+                const stmts = [];
+                while (!lx.eof() && lx.peek() !== '}') {
+                    let depth = 0;
+                    let buf = '';
+                    while (!lx.eof()) {
+                        const ch = lx.peek();
+                        if (ch === '{')
+                            depth++;
+                        if (ch === '}') {
+                            if (depth === 0)
+                                break;
+                            depth--;
+                        }
+                        if (ch === ';' && depth === 0) {
+                            lx.next();
+                            break;
+                        }
+                        buf += lx.next();
+                    }
+                    const stmt = buf.trim();
+                    if (stmt.length > 0)
+                        stmts.push(parseExprRD(stmt));
+                    lx.eatWs();
+                }
+                if (lx.peek() === '}')
+                    lx.next();
+                body = { kind: 'Block', sid: (0, core_ir_1.sid)('block'), stmts };
+            }
+            else {
+                body = parsePrimary();
+            }
+            return withSpan({ kind: 'For', sid: (0, core_ir_1.sid)('for'), name, iter, body }, start);
+        }
+        if (lx.eatKeyword('break')) {
+            const start = { line: lx.line, col: lx.col };
+            return withSpan({ kind: 'Break', sid: (0, core_ir_1.sid)('break') }, start);
+        }
+        if (lx.eatKeyword('continue')) {
+            const start = { line: lx.line, col: lx.col };
+            return withSpan({ kind: 'Continue', sid: (0, core_ir_1.sid)('cont') }, start);
+        }
         // if-expr: if cond then expr else expr
         if (lx.eatKeyword('if')) {
             const start = { line: lx.line, col: lx.col };

@@ -1,0 +1,18 @@
+module stdlib
+
+// Text helpers
+fn length(s: Text): Int = 0
+fn uppercase(s: Text): Text = s
+fn lowercase(s: Text): Text = s
+
+// List helpers (simple pure stubs)
+fn map(xs: [Int], f: fn(x: Int): Int): [Int] = xs
+fn filter(xs: [Int], f: fn(x: Int): Bool): [Int] = xs
+fn reduce(xs: [Int], init: Int, f: fn(a: Int, x: Int): Int): Int = init
+
+// Set helpers (modeled as list)
+fn hasSet(xs: [Int], x: Int): Bool = false
+
+// Map helpers (modeled as list of pairs)
+fn getMap(xs: [[Int]], k: Int, def: Int): Int = def
+fn setMap(xs: [[Int]], k: Int, v: Int): [[Int]] = xs
