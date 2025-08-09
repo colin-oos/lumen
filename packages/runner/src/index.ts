@@ -13,7 +13,7 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
   let currentModule: string | null = null
   // simple actor mailbox map
   const mailboxes = new Map<string, Array<unknown>>()
-  const actors = new Map<string, { paramName?: string, body?: Expr, effects: Set<string>, state?: Map<string, unknown>, handlers?: Array<{ test: (msg: unknown)=>boolean, reply?: (msg: unknown)=>unknown, run: ()=>unknown, guard?: Expr }> }>()
+  const actors = new Map<string, { paramName?: string, body?: Expr, effects: Set<string>, state?: Map<string, unknown>, handlers?: Array<{ match: (msg: unknown)=>{ ok: boolean, binds: Map<string, unknown> }, guard?: Expr, reply?: (msg: unknown, binds: Map<string, unknown>)=>unknown, run: (binds: Map<string, unknown>)=>unknown }> }>()
   const effectStack: Array<Set<string> | null> = []
   const stores = new Map<string, Array<any>>()
 
@@ -45,16 +45,21 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
         }
         // Handler-style actor
         if (actor.handlers && actor.state) {
-          const handler = actor.handlers.find(h => h.test(msgObj.value))
-          if (handler) {
+          let chosen: { h: any, binds: Map<string, unknown> } | null = null
+          for (const h of actor.handlers) {
+            const res = h.match(msgObj.value)
+            if (res.ok) { chosen = { h, binds: res.binds }; break }
+          }
+          if (chosen) {
             const prevEnv = new Map(env)
-            // load state into env
+            // load state into env and binds
             for (const [k,v] of actor.state) env.set(k, v)
+            for (const [k,v] of chosen.binds) env.set(k, v)
             effectStack.push(actor.effects)
             try {
               // guard check (must be pure, we just evaluate expression)
               let guardOk = true
-              const hAny: any = handler
+              const hAny: any = chosen.h
               if (hAny.guard) {
                 const hasEffectCall = (expr: any): boolean => {
                   if (!expr || typeof expr !== 'object') return false
@@ -70,10 +75,10 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
                 else guardOk = Boolean(evalExpr(hAny.guard as any))
               }
               let result: unknown = null
-              if (guardOk) result = handler.run()
+              if (guardOk) result = chosen.h.run(chosen.binds)
               // write back state
               for (const [k] of actor.state) actor.state.set(k, env.get(k))
-              if (msgObj.sink && handler.reply) { msgObj.sink.done = true; msgObj.sink.value = result }
+              if (msgObj.sink && chosen.h.reply) { msgObj.sink.done = true; msgObj.sink.value = chosen.h.reply(msgObj.value, chosen.binds) }
             } finally {
               effectStack.pop(); env.clear(); for (const [k,v] of prevEnv) env.set(k,v)
             }
@@ -85,6 +90,83 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
   }
 
   function truthy(b: unknown): boolean { return Boolean(b) }
+
+  function matchPattern(pat: Expr, val: any): { ok: boolean, binds: Map<string, unknown> } {
+    const binds = new Map<string, unknown>()
+    const isCtor = (v: any) => v && typeof v === 'object' && '$' in v && Array.isArray((v as any).values)
+    const equal = (a: any, b: any): boolean => JSON.stringify(a) === JSON.stringify(b)
+    function merge(a: Map<string, unknown>, b: Map<string, unknown>): Map<string, unknown> | null {
+      const out = new Map(a)
+      for (const [k,v] of b) { if (out.has(k) && out.get(k) !== v) return null; out.set(k, v) }
+      return out
+    }
+    function go(p: Expr, v: any): { ok: boolean, binds: Map<string, unknown> } {
+      switch (p.kind) {
+        case 'Var': {
+          const name = p.name
+          if (name === '_' || name === '*') return { ok: true, binds: new Map() }
+          const m = new Map<string, unknown>()
+          m.set(name, v)
+          return { ok: true, binds: m }
+        }
+        case 'LitNum':
+        case 'LitFloat':
+        case 'LitText':
+        case 'LitBool':
+          return { ok: equal(evalExpr(p), v), binds: new Map() }
+        case 'Ctor': {
+          if (!isCtor(v)) return { ok: false, binds: new Map() }
+          const vv = v as any
+          if (vv.$ !== p.name) return { ok: false, binds: new Map() }
+          if (p.args.length !== vv.values.length) return { ok: false, binds: new Map() }
+          let acc = new Map<string, unknown>()
+          for (let i = 0; i < p.args.length; i++) {
+            const r = go(p.args[i], vv.values[i])
+            if (!r.ok) return { ok: false, binds: new Map() }
+            const merged = merge(acc, r.binds)
+            if (!merged) return { ok: false, binds: new Map() }
+            acc = merged
+          }
+          return { ok: true, binds: acc }
+        }
+        case 'RecordLit': {
+          if (!v || typeof v !== 'object') return { ok: false, binds: new Map() }
+          let acc = new Map<string, unknown>()
+          for (const f of (p as any).fields as Array<{ name: string, expr: Expr }>) {
+            const r = go(f.expr, (v as any)[f.name])
+            if (!r.ok) return { ok: false, binds: new Map() }
+            const merged = merge(acc, r.binds)
+            if (!merged) return { ok: false, binds: new Map() }
+            acc = merged
+          }
+          return { ok: true, binds: acc }
+        }
+        case 'TupleLit': {
+          if (!Array.isArray(v)) return { ok: false, binds: new Map() }
+          if (p.elements.length !== v.length) return { ok: false, binds: new Map() }
+          let acc = new Map<string, unknown>()
+          for (let i = 0; i < p.elements.length; i++) {
+            const r = go(p.elements[i], v[i])
+            if (!r.ok) return { ok: false, binds: new Map() }
+            const merged = merge(acc, r.binds)
+            if (!merged) return { ok: false, binds: new Map() }
+            acc = merged
+          }
+          return { ok: true, binds: acc }
+        }
+        case 'PatternOr': {
+          const left = go((p as any).left, v)
+          if (left.ok) return left
+          return go((p as any).right, v)
+        }
+        default:
+          // Fallback compare
+          return { ok: equal(evalExpr(p), v), binds: new Map() }
+      }
+    }
+    const res = go(pat, val)
+    return res
+  }
 
   function evalExpr(e: Expr): unknown {
     trace.push({ sid: (e as any).sid ?? 'unknown', note: e.kind })
@@ -123,7 +205,7 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
                 env.clear()
                 for (const [k, v] of Object.entries(row)) env.set(k, v)
                 let ok = true
-                try { ok = Boolean(evalExpr(d.predicate as any)) } finally { env.clear(); for (const [k,v] of prev) env.set(k,v) }
+                try { ok = Boolean(evalExpr((d.predicate as any))) } finally { env.clear(); for (const [k,v] of prev) env.set(k,v) }
                 return ok
               } : undefined
               if (storeDecl && isSqliteConfig(storeDecl.config)) {
@@ -156,23 +238,16 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
             const state = new Map<string, unknown>()
             for (const s of d.state as any[]) state.set(s.name, evalExpr(s.init))
             const handlers = (d.handlers as any[]).map(h => ({
-              test: (msg: unknown) => {
-                // pattern matching with wildcard, literal equality, ctor equality, or pattern OR
-                const pat = h.pattern as any
-                const resolve = (val: any): any => val && typeof val === 'object' && val.kind ? evalExpr(val) : val
-                const matchOne = (patv: any, v: any): boolean => {
-                  if (typeof patv === 'string' && (patv === '_' || patv === '*')) return true
-                  if (pat && pat.kind === 'PatternOr') return matchOne(resolve(pat.left), v) || matchOne(resolve(pat.right), v)
-                  const isCtor = (x: any) => x && typeof x === 'object' && '$' in x && Array.isArray(x.values)
-                  if (isCtor(patv) && isCtor(v)) return (patv as any).$ === (v as any).$ && JSON.stringify((patv as any).values) === JSON.stringify((v as any).values)
-                  return JSON.stringify(patv) === JSON.stringify(v)
-                }
-                const patVal = resolve(pat)
-                return matchOne(patVal, msg)
-              },
+              match: (msg: unknown) => matchPattern(h.pattern as any, msg),
               guard: h.guard ? (h.guard as any) : undefined,
-              reply: h.replyType ? (msg: unknown) => evalExpr(h.body) : undefined,
-              run: () => evalExpr(h.body)
+              reply: h.replyType ? (_msg: unknown, binds: Map<string, unknown>) => {
+                const prev = new Map(env); for (const [k,v] of binds) env.set(k, v)
+                try { return evalExpr(h.body) } finally { env.clear(); for (const [k,v] of prev) env.set(k,v) }
+              } : undefined,
+              run: (binds: Map<string, unknown>) => {
+                const prev = new Map(env); for (const [k,v] of binds) env.set(k, v)
+                try { return evalExpr(h.body) } finally { env.clear(); for (const [k,v] of prev) env.set(k,v) }
+              }
             }))
             actors.set(key, { effects: d.effects as any, state, handlers })
             mailboxes.set(key, [])
@@ -371,8 +446,6 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
       }
       case 'Match': {
         const value = evalExpr(e.scrutinee)
-        const isCtor = (v: any) => v && typeof v === 'object' && '$' in v && Array.isArray(v.values)
-        const equal = (a: any, b: any): boolean => JSON.stringify(a) === JSON.stringify(b)
         const hasEffectCall = (expr: any): boolean => {
           if (!expr || typeof expr !== 'object') return false
           if (expr.kind === 'EffectCall') return true
@@ -383,22 +456,21 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
           }
           return false
         }
-        const matchPattern = (pat: any, val: any): boolean => {
-          const pv = evalExpr(pat)
-          if (typeof pv === 'string' && (pv === '_' || pv === '*')) return true
-          if ((pat as any).kind === 'PatternOr') return matchPattern((pat as any).left, val) || matchPattern((pat as any).right, val)
-          if (isCtor(pv) && isCtor(val)) return (pv as any).$ === (val as any).$ && equal((pv as any).values, (val as any).values)
-          return equal(pv, val)
-        }
         for (const c of e.cases as any[]) {
-          const matched = matchPattern(c.pattern, value)
-          if (matched) {
+          const res = matchPattern(c.pattern, value)
+          if (res.ok) {
             if (c.guard) {
-              if (hasEffectCall(c.guard)) continue
-              const g = evalExpr(c.guard)
-              if (!g) continue
+              const prev = new Map(env); for (const [k,v] of res.binds) env.set(k, v)
+              try {
+                if (hasEffectCall(c.guard)) { for (const [k] of res.binds) env.delete(k); continue }
+                const g = evalExpr(c.guard)
+                if (!g) { for (const [k] of res.binds) env.delete(k); continue }
+              } finally {
+                env.clear(); for (const [k,v] of prev) env.set(k, v)
+              }
             }
-            return evalExpr(c.body)
+            const prev = new Map(env); for (const [k,v] of res.binds) env.set(k, v)
+            try { return evalExpr(c.body) } finally { env.clear(); for (const [k,v] of prev) env.set(k, v) }
           }
         }
         return null

@@ -49,17 +49,26 @@ function run(ast, options) {
                 }
                 // Handler-style actor
                 if (actor.handlers && actor.state) {
-                    const handler = actor.handlers.find(h => h.test(msgObj.value));
-                    if (handler) {
+                    let chosen = null;
+                    for (const h of actor.handlers) {
+                        const res = h.match(msgObj.value);
+                        if (res.ok) {
+                            chosen = { h, binds: res.binds };
+                            break;
+                        }
+                    }
+                    if (chosen) {
                         const prevEnv = new Map(env);
-                        // load state into env
+                        // load state into env and binds
                         for (const [k, v] of actor.state)
+                            env.set(k, v);
+                        for (const [k, v] of chosen.binds)
                             env.set(k, v);
                         effectStack.push(actor.effects);
                         try {
                             // guard check (must be pure, we just evaluate expression)
                             let guardOk = true;
-                            const hAny = handler;
+                            const hAny = chosen.h;
                             if (hAny.guard) {
                                 const hasEffectCall = (expr) => {
                                     if (!expr || typeof expr !== 'object')
@@ -89,13 +98,13 @@ function run(ast, options) {
                             }
                             let result = null;
                             if (guardOk)
-                                result = handler.run();
+                                result = chosen.h.run(chosen.binds);
                             // write back state
                             for (const [k] of actor.state)
                                 actor.state.set(k, env.get(k));
-                            if (msgObj.sink && handler.reply) {
+                            if (msgObj.sink && chosen.h.reply) {
                                 msgObj.sink.done = true;
-                                msgObj.sink.value = result;
+                                msgObj.sink.value = chosen.h.reply(msgObj.value, chosen.binds);
                             }
                         }
                         finally {
@@ -111,6 +120,100 @@ function run(ast, options) {
         }
     }
     function truthy(b) { return Boolean(b); }
+    function matchPattern(pat, val) {
+        const binds = new Map();
+        const isCtor = (v) => v && typeof v === 'object' && '$' in v && Array.isArray(v.values);
+        const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+        function merge(a, b) {
+            const out = new Map(a);
+            for (const [k, v] of b) {
+                if (out.has(k) && out.get(k) !== v)
+                    return null;
+                out.set(k, v);
+            }
+            return out;
+        }
+        function go(p, v) {
+            switch (p.kind) {
+                case 'Var': {
+                    const name = p.name;
+                    if (name === '_' || name === '*')
+                        return { ok: true, binds: new Map() };
+                    const m = new Map();
+                    m.set(name, v);
+                    return { ok: true, binds: m };
+                }
+                case 'LitNum':
+                case 'LitFloat':
+                case 'LitText':
+                case 'LitBool':
+                    return { ok: equal(evalExpr(p), v), binds: new Map() };
+                case 'Ctor': {
+                    if (!isCtor(v))
+                        return { ok: false, binds: new Map() };
+                    const vv = v;
+                    if (vv.$ !== p.name)
+                        return { ok: false, binds: new Map() };
+                    if (p.args.length !== vv.values.length)
+                        return { ok: false, binds: new Map() };
+                    let acc = new Map();
+                    for (let i = 0; i < p.args.length; i++) {
+                        const r = go(p.args[i], vv.values[i]);
+                        if (!r.ok)
+                            return { ok: false, binds: new Map() };
+                        const merged = merge(acc, r.binds);
+                        if (!merged)
+                            return { ok: false, binds: new Map() };
+                        acc = merged;
+                    }
+                    return { ok: true, binds: acc };
+                }
+                case 'RecordLit': {
+                    if (!v || typeof v !== 'object')
+                        return { ok: false, binds: new Map() };
+                    let acc = new Map();
+                    for (const f of p.fields) {
+                        const r = go(f.expr, v[f.name]);
+                        if (!r.ok)
+                            return { ok: false, binds: new Map() };
+                        const merged = merge(acc, r.binds);
+                        if (!merged)
+                            return { ok: false, binds: new Map() };
+                        acc = merged;
+                    }
+                    return { ok: true, binds: acc };
+                }
+                case 'TupleLit': {
+                    if (!Array.isArray(v))
+                        return { ok: false, binds: new Map() };
+                    if (p.elements.length !== v.length)
+                        return { ok: false, binds: new Map() };
+                    let acc = new Map();
+                    for (let i = 0; i < p.elements.length; i++) {
+                        const r = go(p.elements[i], v[i]);
+                        if (!r.ok)
+                            return { ok: false, binds: new Map() };
+                        const merged = merge(acc, r.binds);
+                        if (!merged)
+                            return { ok: false, binds: new Map() };
+                        acc = merged;
+                    }
+                    return { ok: true, binds: acc };
+                }
+                case 'PatternOr': {
+                    const left = go(p.left, v);
+                    if (left.ok)
+                        return left;
+                    return go(p.right, v);
+                }
+                default:
+                    // Fallback compare
+                    return { ok: equal(evalExpr(p), v), binds: new Map() };
+            }
+        }
+        const res = go(pat, val);
+        return res;
+    }
     function evalExpr(e) {
         trace.push({ sid: e.sid ?? 'unknown', note: e.kind });
         switch (e.kind) {
@@ -205,26 +308,34 @@ function run(ast, options) {
                         for (const s of d.state)
                             state.set(s.name, evalExpr(s.init));
                         const handlers = d.handlers.map(h => ({
-                            test: (msg) => {
-                                // pattern matching with wildcard, literal equality, ctor equality, or pattern OR
-                                const pat = h.pattern;
-                                const resolve = (val) => val && typeof val === 'object' && val.kind ? evalExpr(val) : val;
-                                const matchOne = (patv, v) => {
-                                    if (typeof patv === 'string' && (patv === '_' || patv === '*'))
-                                        return true;
-                                    if (pat && pat.kind === 'PatternOr')
-                                        return matchOne(resolve(pat.left), v) || matchOne(resolve(pat.right), v);
-                                    const isCtor = (x) => x && typeof x === 'object' && '$' in x && Array.isArray(x.values);
-                                    if (isCtor(patv) && isCtor(v))
-                                        return patv.$ === v.$ && JSON.stringify(patv.values) === JSON.stringify(v.values);
-                                    return JSON.stringify(patv) === JSON.stringify(v);
-                                };
-                                const patVal = resolve(pat);
-                                return matchOne(patVal, msg);
-                            },
+                            match: (msg) => matchPattern(h.pattern, msg),
                             guard: h.guard ? h.guard : undefined,
-                            reply: h.replyType ? (msg) => evalExpr(h.body) : undefined,
-                            run: () => evalExpr(h.body)
+                            reply: h.replyType ? (_msg, binds) => {
+                                const prev = new Map(env);
+                                for (const [k, v] of binds)
+                                    env.set(k, v);
+                                try {
+                                    return evalExpr(h.body);
+                                }
+                                finally {
+                                    env.clear();
+                                    for (const [k, v] of prev)
+                                        env.set(k, v);
+                                }
+                            } : undefined,
+                            run: (binds) => {
+                                const prev = new Map(env);
+                                for (const [k, v] of binds)
+                                    env.set(k, v);
+                                try {
+                                    return evalExpr(h.body);
+                                }
+                                finally {
+                                    env.clear();
+                                    for (const [k, v] of prev)
+                                        env.set(k, v);
+                                }
+                            }
                         }));
                         actors.set(key, { effects: d.effects, state, handlers });
                         mailboxes.set(key, []);
@@ -461,8 +572,6 @@ function run(ast, options) {
             }
             case 'Match': {
                 const value = evalExpr(e.scrutinee);
-                const isCtor = (v) => v && typeof v === 'object' && '$' in v && Array.isArray(v.values);
-                const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
                 const hasEffectCall = (expr) => {
                     if (!expr || typeof expr !== 'object')
                         return false;
@@ -484,27 +593,43 @@ function run(ast, options) {
                     }
                     return false;
                 };
-                const matchPattern = (pat, val) => {
-                    const pv = evalExpr(pat);
-                    if (typeof pv === 'string' && (pv === '_' || pv === '*'))
-                        return true;
-                    if (pat.kind === 'PatternOr')
-                        return matchPattern(pat.left, val) || matchPattern(pat.right, val);
-                    if (isCtor(pv) && isCtor(val))
-                        return pv.$ === val.$ && equal(pv.values, val.values);
-                    return equal(pv, val);
-                };
                 for (const c of e.cases) {
-                    const matched = matchPattern(c.pattern, value);
-                    if (matched) {
+                    const res = matchPattern(c.pattern, value);
+                    if (res.ok) {
                         if (c.guard) {
-                            if (hasEffectCall(c.guard))
-                                continue;
-                            const g = evalExpr(c.guard);
-                            if (!g)
-                                continue;
+                            const prev = new Map(env);
+                            for (const [k, v] of res.binds)
+                                env.set(k, v);
+                            try {
+                                if (hasEffectCall(c.guard)) {
+                                    for (const [k] of res.binds)
+                                        env.delete(k);
+                                    continue;
+                                }
+                                const g = evalExpr(c.guard);
+                                if (!g) {
+                                    for (const [k] of res.binds)
+                                        env.delete(k);
+                                    continue;
+                                }
+                            }
+                            finally {
+                                env.clear();
+                                for (const [k, v] of prev)
+                                    env.set(k, v);
+                            }
                         }
-                        return evalExpr(c.body);
+                        const prev = new Map(env);
+                        for (const [k, v] of res.binds)
+                            env.set(k, v);
+                        try {
+                            return evalExpr(c.body);
+                        }
+                        finally {
+                            env.clear();
+                            for (const [k, v] of prev)
+                                env.set(k, v);
+                        }
                     }
                 }
                 return null;
