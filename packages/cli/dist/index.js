@@ -266,7 +266,9 @@ async function main() {
         DISABLE_CACHE = rest.includes('--no-cache');
         const ast = loadWithImports(entry);
         (0, core_ir_1.assignStableSids)(ast);
-        const res = (0, runner_1.run)(ast);
+        const schedIdx = rest.indexOf('--scheduler-seed');
+        const schedulerSeed = schedIdx >= 0 ? String(rest[schedIdx + 1] || '') : undefined;
+        const res = (0, runner_1.run)(ast, schedulerSeed ? { schedulerSeed } : undefined);
         const seedIdx = rest.indexOf('--seed');
         const seed = seedIdx >= 0 ? String(rest[seedIdx + 1] || '') : '';
         const hash = hashTrace(res.trace, seed);
@@ -300,6 +302,8 @@ async function main() {
         const policyPathFlagIdx = rest.indexOf('--policy');
         const policyPath = policyPathFlagIdx >= 0 ? path_1.default.resolve(rest[policyPathFlagIdx + 1]) : findPolicyFile(entry);
         const strictWarn = rest.includes('--strict-warn');
+        const schedIdx = rest.indexOf('--scheduler-seed');
+        const schedulerSeed = schedIdx >= 0 ? String(rest[schedIdx + 1] || '') : undefined;
         if (policyPath && fs_1.default.existsSync(policyPath)) {
             const policy = JSON.parse(fs_1.default.readFileSync(policyPath, 'utf8'));
             const fromPolicy = (policy?.policy?.deny ?? []);
@@ -314,6 +318,8 @@ async function main() {
             runOpts.deniedEffects = deniedEffects;
         if (mockEffects)
             runOpts.mockEffects = true;
+        if (schedulerSeed)
+            runOpts.schedulerSeed = schedulerSeed;
         const res = (0, runner_1.run)(ast, Object.keys(runOpts).length ? runOpts : undefined);
         const policy = policyPath && fs_1.default.existsSync(policyPath) ? JSON.parse(fs_1.default.readFileSync(policyPath, 'utf8')) : null;
         const policyReport = policy ? checkPolicyDetailed([{ path: entry, ast }], policy) : { errors: [], warnings: [] };
