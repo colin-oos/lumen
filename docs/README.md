@@ -6,4 +6,5 @@
 - Schema & Query: schema-query.md (examples: examples/newproj, examples/data)
 - Effects & Policy: effects.md (example: examples/policy)
 - HTTP Interop: http.md
+- Packaging & Cache: pkg-cache.md
 - Core IR: core-ir.md

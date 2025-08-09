@@ -26,7 +26,14 @@ function loadSqlite(config, where, projection) {
     if (parsed.table === 'items')
         rows = [{ id: 100, name: 'Widget' }];
     const filtered = where ? rows.filter(where) : rows;
+    const stable = [...filtered].sort((a, b) => {
+        if (typeof a.id === 'number' && typeof b.id === 'number')
+            return a.id - b.id;
+        if (typeof a.name === 'string' && typeof b.name === 'string')
+            return String(a.name).localeCompare(String(b.name));
+        return JSON.stringify(a).localeCompare(JSON.stringify(b));
+    });
     if (projection && projection.length > 0)
-        return filtered.map(r => Object.fromEntries(projection.map(f => [f, r[f]])));
-    return filtered;
+        return stable.map(r => Object.fromEntries(projection.map(f => [f, r[f]])));
+    return stable;
 }
