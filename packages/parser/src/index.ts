@@ -145,7 +145,7 @@ function parseExprRD(src: string): Expr {
             const ch = lx.peek()
             if (ch === '{') depth++
             if (ch === '}') { if (depth === 0) break; depth-- }
-            if (ch === ';' && depth === 0) { lx.next(); break }
+            if ((ch === ';' || ch === '\n') && depth === 0) { lx.next(); break }
             buf += lx.next()
           }
           const stmt = buf.trim()
@@ -179,7 +179,7 @@ function parseExprRD(src: string): Expr {
             const ch = lx.peek()
             if (ch === '{') depth++
             if (ch === '}') { if (depth === 0) break; depth-- }
-            if (ch === ';' && depth === 0) { lx.next(); break }
+            if ((ch === ';' || ch === '\n') && depth === 0) { lx.next(); break }
             buf += lx.next()
           }
           const stmt = buf.trim()
@@ -345,7 +345,7 @@ function parseExprRD(src: string): Expr {
             const ch = lx.peek()
             if (ch === '{') depth2++
             if (ch === '}') { if (depth2 === 0) break; depth2-- }
-            if (ch === ';' && depth2 === 0) { lx.next(); break }
+            if ((ch === ';' || ch === '\n') && depth2 === 0) { lx.next(); break }
             buf += lx.next()
           }
           const stmt = buf.trim()

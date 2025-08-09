@@ -180,7 +180,7 @@ function parseExprRD(src) {
                                 break;
                             depth--;
                         }
-                        if (ch === ';' && depth === 0) {
+                        if ((ch === ';' || ch === '\n') && depth === 0) {
                             lx.next();
                             break;
                         }
@@ -228,7 +228,7 @@ function parseExprRD(src) {
                                 break;
                             depth--;
                         }
-                        if (ch === ';' && depth === 0) {
+                        if ((ch === ';' || ch === '\n') && depth === 0) {
                             lx.next();
                             break;
                         }
@@ -514,7 +514,7 @@ function parseExprRD(src) {
                                 break;
                             depth2--;
                         }
-                        if (ch === ';' && depth2 === 0) {
+                        if ((ch === ';' || ch === '\n') && depth2 === 0) {
                             lx.next();
                             break;
                         }
