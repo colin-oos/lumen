@@ -54,14 +54,8 @@ In-memory and SQLite-facade examples in `examples/newproj` and `examples/data/sq
 
 ## Tutorials
 - Quickstart: docs/quickstart.md
+- End-to-end Tutorial: docs/tutorial.md
 
 # Quickstart Tutorial
 
-- Hello world: `node packages/cli/dist/index.js run examples/hello/main.lum`
-- Actors router: `node packages/cli/dist/index.js run examples/actors/router_adt.lum`
-- Supervisor: `node packages/cli/dist/index.js run examples/actors/supervisor.lum`
-- Adder with payloads: `node packages/cli/dist/index.js run examples/actors/adder.lum`
-- Schema/query (in-memory): `node packages/cli/dist/index.js check examples/newproj/src/main.lum`
-- Schema/query (sqlite facade): `node packages/cli/dist/index.js check examples/data/sqlite_query.lum`
-- Effects policy: `node packages/cli/dist/index.js check examples/policy/main.lum --policy examples/policy/lumen.json --strict-warn`
-- Serve protocol: `node packages/cli/dist/index.js serve` then send JSON requests per `docs/serve.md`
+- Hello world: `
