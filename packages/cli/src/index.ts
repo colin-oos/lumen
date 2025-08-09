@@ -214,7 +214,9 @@ async function main() {
     DISABLE_CACHE = rest.includes('--no-cache')
     const ast = loadWithImports(entry)
     assignStableSids(ast)
-    const res = run(ast)
+    const schedIdx = rest.indexOf('--scheduler-seed')
+    const schedulerSeed = schedIdx >= 0 ? String(rest[schedIdx + 1] || '') : undefined
+    const res = run(ast, schedulerSeed ? { schedulerSeed } as any : undefined)
     const seedIdx = rest.indexOf('--seed')
     const seed = seedIdx >= 0 ? String(rest[seedIdx + 1] || '') : ''
     const hash = hashTrace(res.trace, seed)
@@ -243,6 +245,8 @@ async function main() {
     const policyPathFlagIdx = rest.indexOf('--policy')
     const policyPath = policyPathFlagIdx >= 0 ? path.resolve(rest[policyPathFlagIdx + 1]) : findPolicyFile(entry)
     const strictWarn = rest.includes('--strict-warn')
+    const schedIdx = rest.indexOf('--scheduler-seed')
+    const schedulerSeed = schedIdx >= 0 ? String(rest[schedIdx + 1] || '') : undefined
     if (policyPath && fs.existsSync(policyPath)) {
       const policy = JSON.parse(fs.readFileSync(policyPath, 'utf8'))
       const fromPolicy: string[] = (policy?.policy?.deny ?? [])
@@ -255,6 +259,7 @@ async function main() {
     const runOpts: any = {}
     if (deniedEffects.size > 0) runOpts.deniedEffects = deniedEffects
     if (mockEffects) runOpts.mockEffects = true
+    if (schedulerSeed) runOpts.schedulerSeed = schedulerSeed
     const res = run(ast, Object.keys(runOpts).length ? runOpts : undefined)
     const policy = policyPath && fs.existsSync(policyPath) ? JSON.parse(fs.readFileSync(policyPath, 'utf8')) : null
     const policyReport = policy ? checkPolicyDetailed([{ path: entry, ast }], policy) : { errors: [], warnings: [] as string[] }
