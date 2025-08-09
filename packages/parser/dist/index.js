@@ -515,12 +515,13 @@ function parse(source) {
     const decls = [];
     const reserved = new Set(['actor', 'and', 'as', 'assert', 'break', 'case', 'continue', 'data', 'effect', 'else', 'false', 'fn', 'from', 'import', 'in', 'let', 'match', 'module', 'mut', 'not', 'on', 'or', 'query', 'raises', 'return', 'schema', 'select', 'source', 'spawn', 'spec', 'state', 'stream', 'true', 'unit', 'view', 'where', 'with']);
     function isReservedName(name) { return reserved.has(name); }
+    function colFor(lineIdx) { const raw = rawLines[lineIdx] || ''; const m = raw.match(/^\s*/); return (m ? m[0].length : 0) + 1; }
     for (let idx = 0; idx < lines.length; idx++) {
         const ln = lines[idx];
         if (ln.startsWith('module ')) {
             const m = ln.match(/^module\s+([A-Za-z_][A-Za-z0-9_]*)$/);
             if (m) {
-                decls.push({ kind: 'ModuleDecl', sid: (0, core_ir_1.sid)('module'), name: m[1], span: { start: 0, end: 0, line: idx + 1 } });
+                decls.push({ kind: 'ModuleDecl', sid: (0, core_ir_1.sid)('module'), name: m[1], span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } });
                 continue;
             }
         }
@@ -528,12 +529,12 @@ function parse(source) {
             // import "path"  |  import name [as alias]
             let m = ln.match(/^import\s+"([^"]+)"$/);
             if (m) {
-                decls.push({ kind: 'ImportDecl', sid: (0, core_ir_1.sid)('import'), path: m[1], span: { start: 0, end: 0, line: idx + 1 } });
+                decls.push({ kind: 'ImportDecl', sid: (0, core_ir_1.sid)('import'), path: m[1], span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } });
                 continue;
             }
             m = ln.match(/^import\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+as\s+([A-Za-z_][A-Za-z0-9_]*))?$/);
             if (m) {
-                decls.push({ kind: 'ImportDecl', sid: (0, core_ir_1.sid)('import'), path: m[1], name: m[1], alias: m[2], span: { start: 0, end: 0, line: idx + 1 } });
+                decls.push({ kind: 'ImportDecl', sid: (0, core_ir_1.sid)('import'), path: m[1], name: m[1], alias: m[2], span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } });
                 continue;
             }
         }
@@ -550,7 +551,7 @@ function parse(source) {
                     const params = (mm?.[2] || '').trim() ? (mm[2].split(',').map(x => x.trim()).filter(Boolean)) : [];
                     return { name: vname, params };
                 });
-                decls.push({ kind: 'EnumDecl', sid: (0, core_ir_1.sid)('enum'), name, variants, span: { start: 0, end: 0, line: idx + 1 } });
+                decls.push({ kind: 'EnumDecl', sid: (0, core_ir_1.sid)('enum'), name, variants, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } });
                 continue;
             }
         }
@@ -602,7 +603,7 @@ function parse(source) {
                     }
                 }
             }
-            decls.push({ kind: 'ActorDeclNew', sid: (0, core_ir_1.sid)('actorN'), name, state, handlers, effects: new Set(), span: { start: 0, end: 0, line: idx + 1 } });
+            decls.push({ kind: 'ActorDeclNew', sid: (0, core_ir_1.sid)('actorN'), name, state, handlers, effects: new Set(), span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } });
             continue;
         }
         // mut decl
@@ -612,7 +613,7 @@ function parse(source) {
                 if (isReservedName(m[1])) {
                     continue;
                 }
-                decls.push({ kind: 'Let', sid: (0, core_ir_1.sid)('let'), name: m[1], type: m[2] || undefined, expr: parseExprRD(m[3]), mutable: true, span: { start: 0, end: 0, line: idx + 1 } });
+                decls.push({ kind: 'Let', sid: (0, core_ir_1.sid)('let'), name: m[1], type: m[2] || undefined, expr: parseExprRD(m[3]), mutable: true, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } });
                 continue;
             }
         }
@@ -632,7 +633,7 @@ function parse(source) {
                         depth += (lines[idx].match(/\{/g) || []).length - (lines[idx].match(/\}/g) || []).length;
                     }
                 }
-                decls.push({ kind: 'Let', sid: (0, core_ir_1.sid)('let'), name: m[1], type: m[2] || undefined, expr: parseExprRD(rhs), span: { start: 0, end: 0, line: idx + 1 } });
+                decls.push({ kind: 'Let', sid: (0, core_ir_1.sid)('let'), name: m[1], type: m[2] || undefined, expr: parseExprRD(rhs), span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } });
                 continue;
             }
         }
@@ -663,7 +664,7 @@ function parse(source) {
                 if (raises)
                     for (const eff of raises.split(',').map(s => s.trim()).filter(Boolean))
                         effects.add(eff);
-                decls.push({ kind: 'Fn', sid: (0, core_ir_1.sid)('fn'), name: m[1], params, returnType, body, effects, span: { start: 0, end: 0, line: idx + 1 } });
+                decls.push({ kind: 'Fn', sid: (0, core_ir_1.sid)('fn'), name: m[1], params, returnType, body, effects, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } });
                 continue;
             }
         }
@@ -682,7 +683,7 @@ function parse(source) {
                     for (const eff of raises.split(',').map(s => s.trim()).filter(Boolean))
                         effects.add(eff);
                 const body = parseExprRD(m[5]);
-                decls.push({ kind: 'ActorDecl', sid: (0, core_ir_1.sid)('actor'), name, param, body, effects, span: { start: 0, end: 0, line: idx + 1 } });
+                decls.push({ kind: 'ActorDecl', sid: (0, core_ir_1.sid)('actor'), name, param, body, effects, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } });
                 continue;
             }
         }
@@ -692,7 +693,7 @@ function parse(source) {
                 if (isReservedName(m[1])) {
                     continue;
                 }
-                decls.push({ kind: 'Spawn', sid: (0, core_ir_1.sid)('spawn'), actorName: m[1], span: { start: 0, end: 0, line: idx + 1 } });
+                decls.push({ kind: 'Spawn', sid: (0, core_ir_1.sid)('spawn'), actorName: m[1], span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } });
                 continue;
             }
         }
@@ -701,7 +702,7 @@ function parse(source) {
             if (!m)
                 m = ln.match(/^send\s+([^\s]+)\s+(.+)$/);
             if (m) {
-                decls.push({ kind: 'Send', sid: (0, core_ir_1.sid)('send'), actor: parseExprRD(m[1]), message: parseExprRD(m[2]), span: { start: 0, end: 0, line: idx + 1 } });
+                decls.push({ kind: 'Send', sid: (0, core_ir_1.sid)('send'), actor: parseExprRD(m[1]), message: parseExprRD(m[2]), span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } });
                 continue;
             }
         }
@@ -713,7 +714,7 @@ function parse(source) {
                 const actor = parseExprRD(m[1]);
                 const msg = parseExprRD(m[2]);
                 const timeout = m[3] ? Number(m[3]) : undefined;
-                decls.push({ kind: 'Ask', sid: (0, core_ir_1.sid)('ask'), actor, message: msg, timeoutMs: timeout, span: { start: 0, end: 0, line: idx + 1 } });
+                decls.push({ kind: 'Ask', sid: (0, core_ir_1.sid)('ask'), actor, message: msg, timeoutMs: timeout, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } });
                 continue;
             }
         }
@@ -739,7 +740,7 @@ function parse(source) {
                         continue;
                     }
                 }
-                decls.push({ kind: 'Match', sid: (0, core_ir_1.sid)('match'), scrutinee: scr, cases, span: { start: 0, end: 0, line: idx + 1 } });
+                decls.push({ kind: 'Match', sid: (0, core_ir_1.sid)('match'), scrutinee: scr, cases, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } });
                 continue;
             }
             mm = ln.match(/^match\s+(.+)$/);
@@ -764,7 +765,7 @@ function parse(source) {
                             continue;
                         }
                     }
-                    decls.push({ kind: 'Match', sid: (0, core_ir_1.sid)('match'), scrutinee: scr, cases, span: { start: 0, end: 0, line: idx + 1 } });
+                    decls.push({ kind: 'Match', sid: (0, core_ir_1.sid)('match'), scrutinee: scr, cases, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } });
                     continue;
                 }
             }
@@ -789,7 +790,7 @@ function parse(source) {
                     if (fm)
                         fields[fm[1]] = fm[2];
                 }
-                decls.push({ kind: 'SchemaDecl', sid: (0, core_ir_1.sid)('schema'), name, fields, span: { start: 0, end: 0, line: idx + 1 } });
+                decls.push({ kind: 'SchemaDecl', sid: (0, core_ir_1.sid)('schema'), name, fields, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } });
                 continue;
             }
         }
@@ -807,7 +808,7 @@ function parse(source) {
                     if (am)
                         asserts.push({ expr: parseExprRD(am[1]), message: am[2] });
                 }
-                decls.push({ kind: 'SpecDecl', sid: (0, core_ir_1.sid)('spec'), name, asserts, span: { start: 0, end: 0, line: idx + 1 } });
+                decls.push({ kind: 'SpecDecl', sid: (0, core_ir_1.sid)('spec'), name, asserts, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } });
                 continue;
             }
         }
@@ -827,7 +828,7 @@ function parse(source) {
                     if (sm)
                         config = sm[1];
                 }
-                decls.push({ kind: 'StoreDecl', sid: (0, core_ir_1.sid)('store'), name, schema, config, span: { start: 0, end: 0, line: idx + 1 } });
+                decls.push({ kind: 'StoreDecl', sid: (0, core_ir_1.sid)('store'), name, schema, config, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } });
                 continue;
             }
         }
@@ -838,7 +839,7 @@ function parse(source) {
                 if (isReservedName(m[1])) {
                     continue;
                 }
-                decls.push({ kind: 'StoreDecl', sid: (0, core_ir_1.sid)('store'), name: m[1], schema: m[2], config: m[3] ?? null, span: { start: 0, end: 0, line: idx + 1 } });
+                decls.push({ kind: 'StoreDecl', sid: (0, core_ir_1.sid)('store'), name: m[1], schema: m[2], config: m[3] ?? null, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } });
                 continue;
             }
         }
@@ -858,7 +859,7 @@ function parse(source) {
                 const select = m[4] || (m[3] && !m[4] ? m[3] : undefined);
                 const predicate = where ? parseExprRD(where) : undefined;
                 const projection = select ? select.split(',').map(s => s.trim()).filter(Boolean) : undefined;
-                decls.push({ kind: 'QueryDecl', sid: (0, core_ir_1.sid)('query'), name, source, predicate, projection, span: { start: 0, end: 0, line: idx + 1 } });
+                decls.push({ kind: 'QueryDecl', sid: (0, core_ir_1.sid)('query'), name, source, predicate, projection, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } });
                 continue;
             }
             // 2) query Name() = from x in store.stream() [where expr] select expr
@@ -892,13 +893,13 @@ function parse(source) {
                     projection = fields.length ? fields : undefined;
                 }
                 const predicate = whereExpr ? parseExprRD(whereExpr.replace(new RegExp('^' + alias + '\\.', 'g'), '')) : undefined;
-                decls.push({ kind: 'QueryDecl', sid: (0, core_ir_1.sid)('query'), name, source, predicate, projection, span: { start: 0, end: 0, line: idx + 1 } });
+                decls.push({ kind: 'QueryDecl', sid: (0, core_ir_1.sid)('query'), name, source, predicate, projection, span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } });
                 continue;
             }
         }
         // Fallback: treat as bare expression declaration by synthesizing a let _N
         const name = `tmp_${decls.length}`;
-        decls.push({ kind: 'Let', sid: (0, core_ir_1.sid)('let'), name, expr: parseExprRD(ln), span: { start: 0, end: 0, line: idx + 1 } });
+        decls.push({ kind: 'Let', sid: (0, core_ir_1.sid)('let'), name, expr: parseExprRD(ln), span: { start: 0, end: 0, line: idx + 1, col: colFor(idx) } });
     }
     return { kind: 'Program', sid: (0, core_ir_1.sid)('prog'), decls };
 }
