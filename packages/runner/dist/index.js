@@ -561,6 +561,59 @@ function run(ast, options) {
                 const c = evalExpr(e.cond);
                 return truthy(c) ? evalExpr(e.then) : evalExpr(e.else);
             }
+            case 'While': {
+                const loopBreak = Symbol('break');
+                const loopCont = Symbol('continue');
+                function evalLoopBody() {
+                    try {
+                        return evalExpr(e.body);
+                    }
+                    catch (x) {
+                        if (x === loopBreak)
+                            return null;
+                        if (x === loopCont)
+                            return evalLoopBody();
+                        throw x;
+                    }
+                }
+                while (truthy(evalExpr(e.cond))) {
+                    try {
+                        evalLoopBody();
+                    }
+                    catch (x) {
+                        if (x === loopBreak)
+                            break;
+                        else if (x === loopCont)
+                            continue;
+                        else
+                            throw x;
+                    }
+                }
+                return null;
+            }
+            case 'For': {
+                const loopBreak = Symbol('break');
+                const loopCont = Symbol('continue');
+                const it = evalExpr(e.iter);
+                const arr = Array.isArray(it) ? it : [];
+                for (const v of arr) {
+                    env.set(e.name, v);
+                    try {
+                        evalExpr(e.body);
+                    }
+                    catch (x) {
+                        if (x === loopBreak)
+                            break;
+                        else if (x === loopCont)
+                            continue;
+                        else
+                            throw x;
+                    }
+                }
+                return null;
+            }
+            case 'Break': throw Symbol('break');
+            case 'Continue': throw Symbol('continue');
             case 'RecordLit': {
                 const obj = {};
                 for (const f of e.fields)

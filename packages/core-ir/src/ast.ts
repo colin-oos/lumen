@@ -14,6 +14,10 @@ export type Expr =
   | { kind: 'Unary', sid: Sid, op: 'not' | 'neg', expr: Expr, span?: Span }
   | { kind: 'Binary', sid: Sid, op: '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '<' | '<=' | '>' | '>=' | 'and' | 'or', left: Expr, right: Expr, span?: Span }
   | { kind: 'If', sid: Sid, cond: Expr, then: Expr, else: Expr, span?: Span }
+  | { kind: 'While', sid: Sid, cond: Expr, body: Expr, span?: Span }
+  | { kind: 'For', sid: Sid, name: string, iter: Expr, body: Expr, span?: Span }
+  | { kind: 'Break', sid: Sid, span?: Span }
+  | { kind: 'Continue', sid: Sid, span?: Span }
   | { kind: 'EffectCall', sid: Sid, effect: Effect, op: string, args: Expr[], span?: Span }
   | { kind: 'Block', sid: Sid, stmts: Expr[], span?: Span }
   | { kind: 'Assign', sid: Sid, name: string, expr: Expr, span?: Span }
@@ -86,6 +90,10 @@ function nodeSignature(e: Expr): string {
     case 'Unary': return `Unary:${e.op}:${(e.expr as any).sid ?? '?'}`
     case 'Binary': return `Binary:${e.op}:${(e.left as any).sid ?? '?'}:${(e.right as any).sid ?? '?'}`
     case 'If': return `If:${(e.cond as any).sid ?? '?'}:${(e.then as any).sid ?? '?'}:${(e.else as any).sid ?? '?'}`
+    case 'While': return `While:${(e.cond as any).sid ?? '?'}:${(e.body as any).sid ?? '?'}`
+    case 'For': return `For:${e.name}:${(e.iter as any).sid ?? '?'}:${(e.body as any).sid ?? '?'}`
+    case 'Break': return `Break`
+    case 'Continue': return `Continue`
     case 'EffectCall': return `EffectCall:${e.effect}:${e.op}(${e.args.map(a => (a as any).sid ?? '?').join(',')})`
     case 'RecordLit': return `RecordLit:{${e.fields.map(f => `${f.name}:${(f.expr as any).sid ?? '?'}`).join(',')}}`
     case 'TupleLit': return `TupleLit:(${e.elements.map(a => (a as any).sid ?? '?').join(',')})`
@@ -124,6 +132,10 @@ export function assignStableSids(e: Expr): void {
     case 'Unary': assignStableSids(e.expr); break
     case 'Binary': assignStableSids(e.left); assignStableSids(e.right); break
     case 'If': assignStableSids(e.cond); assignStableSids(e.then); assignStableSids(e.else); break
+    case 'While': assignStableSids(e.cond); assignStableSids(e.body); break
+    case 'For': assignStableSids(e.iter); assignStableSids(e.body); break
+    case 'Break': break
+    case 'Continue': break
     case 'Block': for (const s of e.stmts) assignStableSids(s); break
     case 'EffectCall': for (const a of e.args) assignStableSids(a); break
     case 'RecordLit': for (const f of e.fields) assignStableSids(f.expr); break

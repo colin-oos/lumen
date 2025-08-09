@@ -110,6 +110,18 @@ function formatOne(node) {
         case 'If': {
             return `if ${formatOne(node.cond)} then ${formatOne(node.then)} else ${formatOne(node.else)}`;
         }
+        case 'While': {
+            const body = node.body.kind === 'Block' ? formatOne(node.body) : `{ ${formatOne(node.body)}; }`;
+            return `while ${formatOne(node.cond)} ${body}`;
+        }
+        case 'For': {
+            const body = node.body.kind === 'Block' ? formatOne(node.body) : `{ ${formatOne(node.body)}; }`;
+            return `for ${node.name} in ${formatOne(node.iter)} ${body}`;
+        }
+        case 'Break':
+            return `break`;
+        case 'Continue':
+            return `continue`;
         case 'Block':
             return `{ ${node.stmts.map(s => `${formatOne(s)};`).join(' ')} }`;
         case 'PatternOr':

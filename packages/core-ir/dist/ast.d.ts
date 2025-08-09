@@ -77,6 +77,27 @@ export type Expr = {
     else: Expr;
     span?: Span;
 } | {
+    kind: 'While';
+    sid: Sid;
+    cond: Expr;
+    body: Expr;
+    span?: Span;
+} | {
+    kind: 'For';
+    sid: Sid;
+    name: string;
+    iter: Expr;
+    body: Expr;
+    span?: Span;
+} | {
+    kind: 'Break';
+    sid: Sid;
+    span?: Span;
+} | {
+    kind: 'Continue';
+    sid: Sid;
+    span?: Span;
+} | {
     kind: 'EffectCall';
     sid: Sid;
     effect: Effect;

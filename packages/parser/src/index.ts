@@ -129,6 +129,72 @@ function parseExprRD(src: string): Expr {
 
   function parsePrimary(): Expr {
     lx.eatWs()
+    // while loop
+    if (lx.eatKeyword('while')) {
+      const start = { line: lx.line, col: lx.col }
+      const cond = parseOr()
+      lx.eatWs()
+      let body: Expr
+      if (lx.peek() === '{') {
+        lx.next()
+        const stmts: Expr[] = []
+        while (!lx.eof() && lx.peek() !== '}') {
+          let depth = 0
+          let buf = ''
+          while (!lx.eof()) {
+            const ch = lx.peek()
+            if (ch === '{') depth++
+            if (ch === '}') { if (depth === 0) break; depth-- }
+            if (ch === ';' && depth === 0) { lx.next(); break }
+            buf += lx.next()
+          }
+          const stmt = buf.trim()
+          if (stmt.length > 0) stmts.push(parseExprRD(stmt))
+          lx.eatWs()
+        }
+        if (lx.peek() === '}') lx.next()
+        body = { kind: 'Block', sid: sid('block'), stmts } as any
+      } else {
+        body = parsePrimary()
+      }
+      return withSpan({ kind: 'While', sid: sid('while'), cond, body } as any, start)
+    }
+    // for loop: for name in expr { ... }
+    if (lx.eatKeyword('for')) {
+      const start = { line: lx.line, col: lx.col }
+      lx.eatWs()
+      let name = ''
+      while (/[A-Za-z0-9_]/.test(lx.peek())) name += lx.next()
+      lx.eatWs(); lx.eatKeyword('in'); lx.eatWs()
+      const iter = parseOr()
+      lx.eatWs()
+      let body: Expr
+      if (lx.peek() === '{') {
+        lx.next()
+        const stmts: Expr[] = []
+        while (!lx.eof() && lx.peek() !== '}') {
+          let depth = 0
+          let buf = ''
+          while (!lx.eof()) {
+            const ch = lx.peek()
+            if (ch === '{') depth++
+            if (ch === '}') { if (depth === 0) break; depth-- }
+            if (ch === ';' && depth === 0) { lx.next(); break }
+            buf += lx.next()
+          }
+          const stmt = buf.trim()
+          if (stmt.length > 0) stmts.push(parseExprRD(stmt))
+          lx.eatWs()
+        }
+        if (lx.peek() === '}') lx.next()
+        body = { kind: 'Block', sid: sid('block'), stmts } as any
+      } else {
+        body = parsePrimary()
+      }
+      return withSpan({ kind: 'For', sid: sid('for'), name, iter, body } as any, start)
+    }
+    if (lx.eatKeyword('break')) { const start = { line: lx.line, col: lx.col }; return withSpan({ kind: 'Break', sid: sid('break') } as any, start) }
+    if (lx.eatKeyword('continue')) { const start = { line: lx.line, col: lx.col }; return withSpan({ kind: 'Continue', sid: sid('cont') } as any, start) }
     // if-expr: if cond then expr else expr
     if (lx.eatKeyword('if')) {
       const start = { line: lx.line, col: lx.col }
