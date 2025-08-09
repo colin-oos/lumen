@@ -47,13 +47,16 @@ let xs = [1,2,3,4]
 let ys = stdlib.map(xs, fn(x: Int): Int = x + 1)
 let zs = stdlib.filter(ys, fn(x: Int): Bool = x % 2 == 0)
 let s = stdlib.reduce(zs, 0, fn(a: Int, x: Int): Int = a + x)
-s
+[ys, zs, s]
 `.trim()
   const prog = parse(src) as any
   const merged = { kind: 'Program', sid: 'prog:merged', decls: [ ...(stdAst as any).decls, ...prog.decls ] }
   assignStableSids(merged as any)
   const res = run(merged as any)
-  ensure(res.value === 2 + 4, 'stdlib map/filter/reduce failed')
+  console.log('stdlib pipeline:', res.value)
+  const arr = res.value as any[]
+  ensure(Array.isArray(arr) && Array.isArray(arr[0]) && Array.isArray(arr[1]) && typeof arr[2] === 'number', 'stdlib pipeline shape')
+  ensure(arr[2] === 2 + 4, 'stdlib map/filter/reduce failed')
 }
 
 console.log('loops-stdlib OK')
