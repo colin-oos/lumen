@@ -20,6 +20,32 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
   const effectStack: Array<Set<string> | null> = []
   const stores = new Map<string, Array<any>>()
 
+  // Inject minimal stdlib builtins (deterministic, pure)
+  env.set('stdlib.length', (s: unknown) => typeof s === 'string' ? (s as string).length : 0)
+  env.set('stdlib.uppercase', (s: unknown) => typeof s === 'string' ? (s as string).toUpperCase() : s)
+  env.set('stdlib.lowercase', (s: unknown) => typeof s === 'string' ? (s as string).toLowerCase() : s)
+  env.set('stdlib.map', (xs: unknown, f: any) => Array.isArray(xs) && typeof f === 'function' ? (xs as any[]).map((x: any) => f(x)) : [])
+  env.set('stdlib.filter', (xs: unknown, f: any) => Array.isArray(xs) && typeof f === 'function' ? (xs as any[]).filter((x: any) => Boolean(f(x))) : [])
+  env.set('stdlib.reduce', (xs: unknown, init: unknown, f: any) => Array.isArray(xs) && typeof f === 'function' ? (xs as any[]).reduce((a: any, x: any) => f(a, x), init) : init)
+  env.set('stdlib.hasSet', (xs: unknown, x: unknown) => Array.isArray(xs) ? (xs as any[]).some(v => JSON.stringify(v) === JSON.stringify(x)) : false)
+  env.set('stdlib.getMap', (xs: unknown, k: unknown, def: unknown) => {
+    if (!Array.isArray(xs)) return def
+    for (const pair of xs as any[]) { if (Array.isArray(pair) && pair.length >= 2 && JSON.stringify(pair[0]) === JSON.stringify(k)) return pair[1] }
+    return def
+  })
+  env.set('stdlib.setMap', (xs: unknown, k: unknown, v: unknown) => {
+    const out: any[] = []
+    let replaced = false
+    if (Array.isArray(xs)) {
+      for (const pair of xs as any[]) {
+        if (Array.isArray(pair) && pair.length >= 2 && JSON.stringify(pair[0]) === JSON.stringify(k)) { out.push([k, v]); replaced = true }
+        else out.push(pair)
+      }
+    }
+    if (!replaced) out.push([k, v])
+    return out
+  })
+
   function wrapMessage(m: unknown): { value: unknown, sink?: { done: boolean, value?: unknown } } {
     if (m && typeof m === 'object' && 'value' in (m as any)) return m as any
     return { value: m }
@@ -418,7 +444,10 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
         const l = evalExpr(e.left)
         const r = evalExpr(e.right)
         switch (e.op) {
-          case '+': return (l as any) + (r as any)
+          case '+': {
+            if (Array.isArray(l) && Array.isArray(r)) return (l as any[]).concat(r as any[])
+            return (l as any) + (r as any)
+          }
           case '-': return (l as any) - (r as any)
           case '*': return (l as any) * (r as any)
           case '/': return (l as any) / (r as any)

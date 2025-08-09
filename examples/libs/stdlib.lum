@@ -8,40 +8,26 @@ fn lowercase(s: Text): Text = s
 // List[Int] helpers using loops
 fn map(xs: [Int], f: fn(x: Int): Int): [Int] = {
   let out = []
-  // for loop over tuple literal modeled array
-  for i in xs {
-    out = out + [ f(i) ]
-  }
+  for i in xs { out = out + [ f(i) ]; }
   out
 }
 
 fn filter(xs: [Int], f: fn(x: Int): Bool): [Int] = {
   let out = []
-  for i in xs {
-    if f(i) then out = out + [ i ] else out = out
-  }
+  for i in xs { if f(i) then out = out + [ i ] else out = out; }
   out
 }
 
 fn reduce(xs: [Int], init: Int, f: fn(a: Int, x: Int): Int): Int = {
   let acc = init
-  for i in xs {
-    acc = f(acc, i)
-  }
+  for i in xs { acc = f(acc, i); }
   acc
 }
 
 // Set modeled as list[Int]
 fn hasSet(xs: [Int], x: Int): Bool = {
   let found = false
-  for i in xs {
-    if i == x then {
-      found = true
-      break
-    } else {
-      continue
-    }
-  }
+  for i in xs { if i == x then found = true else found = found; }
   found
 }
 
@@ -49,13 +35,9 @@ fn hasSet(xs: [Int], x: Int): Bool = {
 fn getMap(xs: [[Int]], k: Int, def: Int): Int = {
   let out = def
   for pair in xs {
-    // pair is [k, v]
-    if pair[0] == k then {
-      out = pair[1]
-      break
-    } else {
-      continue
-    }
+    // expect pair as [key, val]; destructure via match
+    let kv = match pair { case [a, b] -> { a: a, b: b } }
+    if kv.a == k then out = kv.b else out = out;
   }
   out
 }
@@ -64,12 +46,8 @@ fn setMap(xs: [[Int]], k: Int, v: Int): [[Int]] = {
   let out = []
   let replaced = false
   for pair in xs {
-    if pair[0] == k then {
-      out = out + [ [k, v] ]
-      replaced = true
-    } else {
-      out = out + [ pair ]
-    }
+    let kv = match pair { case [a, b] -> { a: a, b: b } }
+    if kv.a == k then { out = out + [ [k, v] ]; replaced = true } else { out = out + [ pair ] }
   }
   if replaced then out else (out + [ [k, v] ])
 }

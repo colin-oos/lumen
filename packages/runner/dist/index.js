@@ -14,6 +14,40 @@ function run(ast, options) {
     const actors = new Map();
     const effectStack = [];
     const stores = new Map();
+    // Inject minimal stdlib builtins (deterministic, pure)
+    env.set('stdlib.length', (s) => typeof s === 'string' ? s.length : 0);
+    env.set('stdlib.uppercase', (s) => typeof s === 'string' ? s.toUpperCase() : s);
+    env.set('stdlib.lowercase', (s) => typeof s === 'string' ? s.toLowerCase() : s);
+    env.set('stdlib.map', (xs, f) => Array.isArray(xs) && typeof f === 'function' ? xs.map((x) => f(x)) : []);
+    env.set('stdlib.filter', (xs, f) => Array.isArray(xs) && typeof f === 'function' ? xs.filter((x) => Boolean(f(x))) : []);
+    env.set('stdlib.reduce', (xs, init, f) => Array.isArray(xs) && typeof f === 'function' ? xs.reduce((a, x) => f(a, x), init) : init);
+    env.set('stdlib.hasSet', (xs, x) => Array.isArray(xs) ? xs.some(v => JSON.stringify(v) === JSON.stringify(x)) : false);
+    env.set('stdlib.getMap', (xs, k, def) => {
+        if (!Array.isArray(xs))
+            return def;
+        for (const pair of xs) {
+            if (Array.isArray(pair) && pair.length >= 2 && JSON.stringify(pair[0]) === JSON.stringify(k))
+                return pair[1];
+        }
+        return def;
+    });
+    env.set('stdlib.setMap', (xs, k, v) => {
+        const out = [];
+        let replaced = false;
+        if (Array.isArray(xs)) {
+            for (const pair of xs) {
+                if (Array.isArray(pair) && pair.length >= 2 && JSON.stringify(pair[0]) === JSON.stringify(k)) {
+                    out.push([k, v]);
+                    replaced = true;
+                }
+                else
+                    out.push(pair);
+            }
+        }
+        if (!replaced)
+            out.push([k, v]);
+        return out;
+    });
     function wrapMessage(m) {
         if (m && typeof m === 'object' && 'value' in m)
             return m;
@@ -542,7 +576,11 @@ function run(ast, options) {
                 const l = evalExpr(e.left);
                 const r = evalExpr(e.right);
                 switch (e.op) {
-                    case '+': return l + r;
+                    case '+': {
+                        if (Array.isArray(l) && Array.isArray(r))
+                            return l.concat(r);
+                        return l + r;
+                    }
                     case '-': return l - r;
                     case '*': return l * r;
                     case '/': return l / r;

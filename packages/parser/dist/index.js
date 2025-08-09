@@ -256,6 +256,71 @@ function parseExprRD(src) {
             const start = { line: lx.line, col: lx.col };
             return withSpan({ kind: 'Continue', sid: (0, core_ir_1.sid)('cont') }, start);
         }
+        // anonymous function: fn(params)[:Return]? [raises ...] = expr
+        if (lx.eatKeyword('fn')) {
+            const start = { line: lx.line, col: lx.col };
+            lx.eatWs();
+            if (lx.peek() === '(')
+                lx.next();
+            const params = [];
+            lx.eatWs();
+            if (lx.peek() !== ')') {
+                while (true) {
+                    lx.eatWs();
+                    let pname = '';
+                    while (/[A-Za-z_]/.test(lx.peek()))
+                        pname += lx.next();
+                    lx.eatWs();
+                    let ptype;
+                    if (lx.peek() === ':') {
+                        lx.next();
+                        lx.eatWs();
+                        let t = '';
+                        while (/[A-Za-z_]/.test(lx.peek()))
+                            t += lx.next();
+                        ptype = t || undefined;
+                    }
+                    params.push({ name: pname, type: ptype });
+                    lx.eatWs();
+                    if (lx.peek() === ',') {
+                        lx.next();
+                        lx.eatWs();
+                        continue;
+                    }
+                    break;
+                }
+            }
+            if (lx.peek() === ')')
+                lx.next();
+            lx.eatWs();
+            let returnType;
+            if (lx.peek() === ':') {
+                lx.next();
+                lx.eatWs();
+                let t = '';
+                while (/[A-Za-z_]/.test(lx.peek()))
+                    t += lx.next();
+                returnType = t || undefined;
+            }
+            lx.eatWs();
+            // optional raises clause
+            const effects = new Set();
+            if (lx.eatKeyword('raises')) {
+                lx.eatWs();
+                let eff = '';
+                while (!lx.eof() && lx.peek() !== '=') {
+                    eff += lx.next();
+                }
+                for (const e of eff.split(',').map(s => s.trim()).filter(Boolean))
+                    effects.add(e);
+            }
+            lx.eatWs();
+            if (lx.peek() === '=')
+                lx.next();
+            lx.eatWs();
+            const body = parseOr();
+            return withSpan({ kind: 'Fn', sid: (0, core_ir_1.sid)('fn'), name: null, params, returnType, body, effects }, start);
+        }
         // if-expr: if cond then expr else expr
         if (lx.eatKeyword('if')) {
             const start = { line: lx.line, col: lx.col };
