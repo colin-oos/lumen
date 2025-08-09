@@ -445,6 +445,12 @@ function emitTypes(ast) {
                 }
             }
         }
+        if (d.kind === 'Fn' && d.name) {
+            const name = d.name;
+            const params = (d.params || []).map((p) => tsType(p.type)).join(', ');
+            const ret = tsType(d.returnType);
+            lines.push(`type ${name}Fn = (${params}) => ${ret}`);
+        }
     }
     return lines.join('\n\n') + '\n';
 }
