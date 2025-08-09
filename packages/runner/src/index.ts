@@ -27,9 +27,12 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
   const stores = new Map<string, Array<any>>()
 
   // Inject minimal stdlib builtins (deterministic, pure)
-  env.set('stdlib.length', (s: unknown) => typeof s === 'string' ? (s as string).length : 0)
+  env.set('stdlib.length', (s: unknown) => typeof s === 'string' ? (s as string).length : (Array.isArray(s) ? (s as any[]).length : 0))
   env.set('stdlib.uppercase', (s: unknown) => typeof s === 'string' ? (s as string).toUpperCase() : s)
   env.set('stdlib.lowercase', (s: unknown) => typeof s === 'string' ? (s as string).toLowerCase() : s)
+  env.set('stdlib.startsWith', (s: unknown, prefix: unknown) => typeof s === 'string' && typeof prefix === 'string' ? (s as string).startsWith(prefix as string) : false)
+  env.set('stdlib.endsWith', (s: unknown, suffix: unknown) => typeof s === 'string' && typeof suffix === 'string' ? (s as string).endsWith(suffix as string) : false)
+  env.set('stdlib.contains', (s: unknown, sub: unknown) => typeof s === 'string' && typeof sub === 'string' ? (s as string).includes(sub as string) : false)
   env.set('stdlib.map', (xs: unknown, f: any) => Array.isArray(xs) && typeof f === 'function' ? (xs as any[]).map((x: any) => f(x)) : [])
   env.set('stdlib.filter', (xs: unknown, f: any) => Array.isArray(xs) && typeof f === 'function' ? (xs as any[]).filter((x: any) => Boolean(f(x))) : [])
   env.set('stdlib.reduce', (xs: unknown, init: unknown, f: any) => Array.isArray(xs) && typeof f === 'function' ? (xs as any[]).reduce((a: any, x: any) => f(a, x), init) : init)
@@ -51,6 +54,25 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
     if (!replaced) out.push([k, v])
     return out
   })
+  env.set('stdlib.any', (xs: unknown, f: any) => Array.isArray(xs) && typeof f === 'function' ? (xs as any[]).some((x: any) => Boolean(f(x))) : false)
+  env.set('stdlib.all', (xs: unknown, f: any) => Array.isArray(xs) && typeof f === 'function' ? (xs as any[]).every((x: any) => Boolean(f(x))) : false)
+  env.set('stdlib.unique', (xs: unknown) => Array.isArray(xs) ? (xs as any[]).filter((v, i, a) => a.findIndex(z => JSON.stringify(z) === JSON.stringify(v)) === i) : [])
+  env.set('stdlib.union', (a: unknown, b: unknown) => {
+    const aa = Array.isArray(a) ? (a as any[]) : []
+    const bb = Array.isArray(b) ? (b as any[]) : []
+    const combined = aa.concat(bb)
+    return (combined as any[]).filter((v, i, arr) => arr.findIndex(z => JSON.stringify(z) === JSON.stringify(v)) === i)
+  })
+  env.set('stdlib.intersect', (a: unknown, b: unknown) => {
+    const aa = Array.isArray(a) ? (a as any[]) : []
+    const bb = Array.isArray(b) ? (b as any[]) : []
+    return aa.filter(x => bb.findIndex(z => JSON.stringify(z) === JSON.stringify(x)) >= 0).filter((v, i, arr) => arr.findIndex(z => JSON.stringify(z) === JSON.stringify(v)) === i)
+  })
+  env.set('stdlib.keys', (xs: unknown) => Array.isArray(xs) ? (xs as any[]).map(p => Array.isArray(p) ? p[0] : null).filter(x => x !== null) : [])
+  env.set('stdlib.values', (xs: unknown) => Array.isArray(xs) ? (xs as any[]).map(p => Array.isArray(p) ? p[1] : null).filter(x => x !== null) : [])
+  env.set('stdlib.lengthList', (xs: unknown) => Array.isArray(xs) ? (xs as any[]).length : 0)
+  env.set('stdlib.head', (xs: unknown) => Array.isArray(xs) && (xs as any[]).length > 0 ? (xs as any[])[0] : null)
+  env.set('stdlib.tail', (xs: unknown) => Array.isArray(xs) && (xs as any[]).length > 0 ? (xs as any[]).slice(1) : [])
 
   function wrapMessage(m: unknown): { value: unknown, sink?: { done: boolean, value?: unknown } } {
     if (m && typeof m === 'object' && 'value' in (m as any)) return m as any
