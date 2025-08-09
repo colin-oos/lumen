@@ -217,8 +217,8 @@ async function main() {
     if (policyPath && fs.existsSync(policyPath)) {
       const policy = JSON.parse(fs.readFileSync(policyPath, 'utf8'))
       const fromPolicy: string[] = (policy?.policy?.deny ?? [])
-      denyList = Array.from(new Set([...
-        denyList,
+      denyList = Array.from(new Set([
+        ...denyList,
         ...fromPolicy,
       ]))
     }
@@ -708,7 +708,7 @@ function collectImportsTransitive(entry: string, visited = new Set<string>()): s
   if (ast.kind === 'Program') {
     for (const d of ast.decls) {
       if (d.kind === 'ImportDecl') {
-        const p = resolveImportPath(entry, d.path)
+        const p = resolveImportPath(entry, (d as any).path)
         imports.push(p)
         imports.push(...collectImportsTransitive(p, visited))
       }
@@ -808,9 +808,10 @@ function prefixWithModule(files: Array<{ path: string, ast: any }>, name: string
 
 // Very small type checker for literals/ident/let/fn/call/binary/block
 function checkTypesProject(files: Array<{ path: string, ast: any }>): { errors: string[] } {
-  type Type = 'Int' | 'Text' | 'Bool' | 'Unit' | 'Unknown' | `ADT:${string}`
+  type Type = 'Int' | 'Float' | 'Text' | 'Bool' | 'Unit' | 'Unknown' | `ADT:${string}`
   function typeOfLiteral(e: any): Type {
     if (e.kind === 'LitNum') return 'Int'
+    if (e.kind === 'LitFloat') return 'Float'
     if (e.kind === 'LitText') return 'Text'
     if (e.kind === 'LitBool') return 'Bool'
     return 'Unknown'
@@ -828,8 +829,10 @@ function checkTypesProject(files: Array<{ path: string, ast: any }>): { errors: 
   function parseTypeName(t?: string): Type {
     if (!t) return 'Unknown'
     if (t === 'Int') return 'Int'
+    if (t === 'Float') return 'Float'
     if (t === 'Text') return 'Text'
     if (t === 'Bool') return 'Bool'
+    if (t === 'Unit') return 'Unit'
     if (enumNames.has(t)) return `ADT:${t}`
     return 'Unknown'
   }
@@ -862,14 +865,18 @@ function checkTypesProject(files: Array<{ path: string, ast: any }>): { errors: 
     }
   }
   // Second pass: check bodies
-  function checkExpr(e: any, env: Map<string, Type>, file: string): Type {
+  type EnvEntry = { type: Type, mutable: boolean }
+  function checkExpr(e: any, env: Map<string, EnvEntry>, file: string): Type {
     switch (e.kind) {
       case 'LitNum':
+      case 'LitFloat':
       case 'LitText':
       case 'LitBool':
         return typeOfLiteral(e)
-      case 'Var':
-        return env.get(e.name) ?? 'Unknown'
+      case 'Var': {
+        const ent = env.get(e.name)
+        return ent ? ent.type : 'Unknown'
+      }
       case 'Ctor': {
         const meta = ctorToEnum.get(e.name)
         const argTypes = (e.args as any[]).map(a => checkExpr(a, env, file))
@@ -906,7 +913,7 @@ function checkTypesProject(files: Array<{ path: string, ast: any }>): { errors: 
           if (c.guard) checkExpr(c.guard, env, file)
           const bt = checkExpr(c.body, env, file)
           // infer base type consensus
-          if (bt === 'Int' || bt === 'Text' || bt === 'Bool' || bt === 'Unit') {
+          if (bt === 'Int' || bt === 'Float' || bt === 'Text' || bt === 'Bool' || bt === 'Unit') {
             allBranchesBaseType = allBranchesBaseType === null ? bt : (allBranchesBaseType === bt ? bt : 'Unknown')
           } else if (typeof bt === 'string' && bt.startsWith('ADT:')) {
             // track ADT result type
@@ -925,6 +932,18 @@ function checkTypesProject(files: Array<{ path: string, ast: any }>): { errors: 
             } else onlyCtors = false
           } else if (c.pattern?.kind === 'Var' && (c.pattern.name === '_' || c.pattern.name === '*')) {
             onlyCtors = false
+          } else if (c.pattern?.kind === 'PatternOr') {
+            // treat as covering multiple ctors only if both sides are ctors from same enum
+            const left = c.pattern.left
+            const right = c.pattern.right
+            if (left?.kind === 'Ctor' && right?.kind === 'Ctor') {
+              const ml = ctorToEnum.get(left.name)
+              const mr = ctorToEnum.get(right.name)
+              if (ml && mr && ml.enumName === mr.enumName) {
+                ctors.add(left.name); ctors.add(right.name)
+                enumNameForCases = enumNameForCases ?? ml.enumName
+              } else onlyCtors = false
+            } else onlyCtors = false
           } else {
             onlyCtors = false
           }
@@ -945,16 +964,53 @@ function checkTypesProject(files: Array<{ path: string, ast: any }>): { errors: 
         if (e.type && declT !== 'Unknown' && t !== 'Unknown' && declT !== t) {
           errors.push(`${file}: type mismatch in let ${e.name}: declared ${declT} but got ${t}`)
         }
-        env.set(e.name, declT !== 'Unknown' ? declT : t)
-        return env.get(e.name) ?? 'Unknown'
+        env.set(e.name, { type: declT !== 'Unknown' ? declT : t, mutable: Boolean(e.mutable) })
+        return env.get(e.name)?.type ?? 'Unknown'
+      }
+      case 'Assign': {
+        const ent = env.get(e.name)
+        if (!ent || !ent.mutable) errors.push(`${file}: assignment to immutable or undeclared name ${e.name}`)
+        return checkExpr(e.expr, env, file)
+      }
+      case 'Unary': {
+        const t = checkExpr(e.expr, env, file)
+        if (e.op === 'not') {
+          if (t !== 'Bool' && t !== 'Unknown') errors.push(`${file}: unary not expects Bool, got ${t}`)
+          return 'Bool'
+        }
+        if (e.op === 'neg') {
+          if ((t !== 'Int' && t !== 'Float') && t !== 'Unknown') errors.push(`${file}: unary - expects numeric, got ${t}`)
+          return t
+        }
+        return 'Unknown'
       }
       case 'Binary': {
         const lt = checkExpr(e.left, env, file)
         const rt = checkExpr(e.right, env, file)
-        if ((lt !== 'Int' || rt !== 'Int') && (lt !== 'Unknown' && rt !== 'Unknown')) {
-          errors.push(`${file}: binary ${e.op} expects Int, got ${lt} and ${rt}`)
+        const numericOps = ['+', '-', '*', '/', '%']
+        const cmpOps = ['==','!=','<','<=','>','>=']
+        const boolOps = ['and','or']
+        if (numericOps.includes(e.op)) {
+          if ((lt !== 'Int' && lt !== 'Float') || (rt !== 'Int' && rt !== 'Float')) {
+            if (lt !== 'Unknown' && rt !== 'Unknown') errors.push(`${file}: binary ${e.op} expects numeric, got ${lt} and ${rt}`)
+          }
+          return (lt === 'Float' || rt === 'Float') ? 'Float' : 'Int'
         }
-        return 'Int'
+        if (cmpOps.includes(e.op)) {
+          // allow comparing same-typed numeric or text/bool; result bool
+          if (lt !== rt && lt !== 'Unknown' && rt !== 'Unknown') {
+            // permit Int vs Float comparisons
+            if (!((lt === 'Int' && rt === 'Float') || (lt === 'Float' && rt === 'Int'))) {
+              errors.push(`${file}: comparison ${e.op} between ${lt} and ${rt}`)
+            }
+          }
+          return 'Bool'
+        }
+        if (boolOps.includes(e.op)) {
+          if ((lt !== 'Bool' || rt !== 'Bool') && (lt !== 'Unknown' && rt !== 'Unknown')) errors.push(`${file}: boolean ${e.op} expects Bool, got ${lt} and ${rt}`)
+          return 'Bool'
+        }
+        return 'Unknown'
       }
       case 'EffectCall': {
         const rt = effectReturnType(e.effect, e.op)
@@ -985,9 +1041,18 @@ function checkTypesProject(files: Array<{ path: string, ast: any }>): { errors: 
         for (const s of e.stmts) last = checkExpr(s, local, file)
         return last
       }
+      case 'If': {
+        const ct = checkExpr(e.cond, env, file)
+        if (ct !== 'Bool' && ct !== 'Unknown') errors.push(`${file}: if condition must be Bool, got ${ct}`)
+        const tt = checkExpr(e.then, env, file)
+        const et = checkExpr(e.else, env, file)
+        if (tt === et) return tt
+        if ((tt === 'Int' && et === 'Float') || (tt === 'Float' && et === 'Int')) return 'Float'
+        return 'Unknown'
+      }
       case 'Fn': {
         const local = new Map(env)
-        for (const p of (e.params as Array<{ name: string, type?: string }>)) local.set(p.name, parseTypeName(p.type))
+        for (const p of (e.params as Array<{ name: string, type?: string }>)) local.set(p.name, { type: parseTypeName(p.type), mutable: false })
         const bodyT = checkExpr(e.body, local, file)
         const retT = parseTypeName(e.returnType)
         if (e.returnType) {
@@ -1023,7 +1088,7 @@ function checkTypesProject(files: Array<{ path: string, ast: any }>): { errors: 
     }
   }
   for (const f of files) {
-    const env = new Map<string, Type>()
+    const env = new Map<string, EnvEntry>()
     if (f.ast.kind !== 'Program') continue
     for (const d of f.ast.decls) {
       if (d.kind === 'QueryDecl') {
@@ -1038,10 +1103,9 @@ function checkTypesProject(files: Array<{ path: string, ast: any }>): { errors: 
           for (const p of proj) if (!(p in schema)) errors.push(`${f.path}: query ${d.name} selects unknown field ${p}`)
           // basic predicate variable usage: allow only field names and literals/operators
           if (d.predicate) {
-            // Build env with field types and type-check predicate
-            const env = new Map<string, Type>()
-            for (const [k, v] of Object.entries(schema)) env.set(k, parseTypeName(v))
-            const _t = checkExpr(d.predicate, env, f.path)
+            const envPred = new Map<string, EnvEntry>()
+            for (const [k, v] of Object.entries(schema)) envPred.set(k, { type: parseTypeName(v), mutable: false })
+            const _t = checkExpr(d.predicate, envPred, f.path)
           }
         }
       } else {
@@ -1067,6 +1131,14 @@ function checkTypesProject(files: Array<{ path: string, ast: any }>): { errors: 
             onlyCtors = false
             enumName = null
             break
+          } else if (h.pattern?.kind === 'PatternOr') {
+            const left = h.pattern.left, right = h.pattern.right
+            if (left?.kind === 'Ctor' && right?.kind === 'Ctor') {
+              const ml = ctorToEnum.get(left.name)
+              const mr = ctorToEnum.get(right.name)
+              if (ml && mr && ml.enumName === mr.enumName) { ctors.add(left.name); ctors.add(right.name) }
+              else onlyCtors = false
+            } else onlyCtors = false
           } else {
             onlyCtors = false
           }
@@ -1083,7 +1155,7 @@ function checkTypesProject(files: Array<{ path: string, ast: any }>): { errors: 
       if (d.kind === 'ActorDeclNew') {
         for (const h of (d.handlers as any[])) {
           if (h.replyType) {
-            const envLocal = new Map<string, Type>()
+            const envLocal = new Map<string, EnvEntry>()
             const bt = checkExpr(h.body, envLocal, f.path)
             const rt = parseTypeName(h.replyType)
             if (rt !== 'Unknown' && bt !== 'Unknown' && rt !== bt) {
@@ -1093,20 +1165,6 @@ function checkTypesProject(files: Array<{ path: string, ast: any }>): { errors: 
         }
       }
     }
-  }
-  function validatePredicateUses(expr: any, schema: Record<string,string>): boolean {
-    let ok = true
-    const visit = (e: any) => {
-      if (!e || typeof e !== 'object') return
-      if (e.kind === 'Var') { if (!(e.name in schema)) ok = false; return }
-      for (const k of Object.keys(e)) {
-        const v = (e as any)[k]
-        if (v && typeof v === 'object' && 'kind' in v) visit(v)
-        if (Array.isArray(v)) for (const it of v) if (it && typeof it === 'object' && 'kind' in it) visit(it)
-      }
-    }
-    visit(expr)
-    return ok
   }
   return { errors }
 }

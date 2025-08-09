@@ -110,6 +110,7 @@ function run(ast, options) {
             }
         }
     }
+    function truthy(b) { return Boolean(b); }
     function evalExpr(e) {
         trace.push({ sid: e.sid ?? 'unknown', note: e.kind });
         switch (e.kind) {
@@ -205,16 +206,21 @@ function run(ast, options) {
                             state.set(s.name, evalExpr(s.init));
                         const handlers = d.handlers.map(h => ({
                             test: (msg) => {
-                                // very simple matching: wildcard '_', variable bind, OR pattern "(a | b)", literal equality, or record equality
+                                // pattern matching with wildcard, literal equality, ctor equality, or pattern OR
                                 const pat = h.pattern;
-                                const patVal = evalExpr(pat);
-                                if (patVal === '_' || patVal === '*')
-                                    return true;
-                                // OR pattern encoded as Binary with '|'? Our parser doesn't build that; support string form "(a | b)"
-                                if (typeof patVal === 'string' && /\|/.test(patVal)) {
-                                    return patVal.replace(/[()]/g, '').split('|').map(s => s.trim().replace(/^"|"$/g, '')).some(v => JSON.stringify(msg) === JSON.stringify(v));
-                                }
-                                return JSON.stringify(msg) === JSON.stringify(patVal);
+                                const resolve = (val) => val && typeof val === 'object' && val.kind ? evalExpr(val) : val;
+                                const matchOne = (patv, v) => {
+                                    if (typeof patv === 'string' && (patv === '_' || patv === '*'))
+                                        return true;
+                                    if (pat && pat.kind === 'PatternOr')
+                                        return matchOne(resolve(pat.left), v) || matchOne(resolve(pat.right), v);
+                                    const isCtor = (x) => x && typeof x === 'object' && '$' in x && Array.isArray(x.values);
+                                    if (isCtor(patv) && isCtor(v))
+                                        return patv.$ === v.$ && JSON.stringify(patv.values) === JSON.stringify(v.values);
+                                    return JSON.stringify(patv) === JSON.stringify(v);
+                                };
+                                const patVal = resolve(pat);
+                                return matchOne(patVal, msg);
                             },
                             guard: h.guard ? h.guard : undefined,
                             reply: h.replyType ? (msg) => evalExpr(h.body) : undefined,
@@ -256,6 +262,7 @@ function run(ast, options) {
                 return v;
             }
             case 'LitText': return e.value;
+            case 'LitFloat': return e.value;
             case 'LitNum': return e.value;
             case 'LitBool': return e.value;
             case 'Var': {
@@ -411,6 +418,14 @@ function run(ast, options) {
                     return sink.value ?? null;
                 }
             }
+            case 'Unary': {
+                const v = evalExpr(e.expr);
+                if (e.op === 'not')
+                    return !truthy(v);
+                if (e.op === 'neg')
+                    return -v;
+                return null;
+            }
             case 'Binary': {
                 const l = evalExpr(e.left);
                 const r = evalExpr(e.right);
@@ -419,8 +434,21 @@ function run(ast, options) {
                     case '-': return l - r;
                     case '*': return l * r;
                     case '/': return l / r;
+                    case '%': return l % r;
+                    case '==': return JSON.stringify(l) === JSON.stringify(r);
+                    case '!=': return JSON.stringify(l) !== JSON.stringify(r);
+                    case '<': return l < r;
+                    case '<=': return l <= r;
+                    case '>': return l > r;
+                    case '>=': return l >= r;
+                    case 'and': return truthy(l) && truthy(r);
+                    case 'or': return truthy(l) || truthy(r);
                 }
                 return null;
+            }
+            case 'If': {
+                const c = evalExpr(e.cond);
+                return truthy(c) ? evalExpr(e.then) : evalExpr(e.else);
             }
             case 'RecordLit': {
                 const obj = {};
@@ -456,16 +484,18 @@ function run(ast, options) {
                     }
                     return false;
                 };
+                const matchPattern = (pat, val) => {
+                    const pv = evalExpr(pat);
+                    if (typeof pv === 'string' && (pv === '_' || pv === '*'))
+                        return true;
+                    if (pat.kind === 'PatternOr')
+                        return matchPattern(pat.left, val) || matchPattern(pat.right, val);
+                    if (isCtor(pv) && isCtor(val))
+                        return pv.$ === val.$ && equal(pv.values, val.values);
+                    return equal(pv, val);
+                };
                 for (const c of e.cases) {
-                    const patVal = evalExpr(c.pattern);
-                    let matched = false;
-                    if (typeof patVal === 'string' && (patVal === '_' || patVal === '*'))
-                        matched = true;
-                    else if (isCtor(patVal) && isCtor(value)) {
-                        matched = patVal.$ === value.$ && equal(patVal.values, value.values);
-                    }
-                    else
-                        matched = equal(patVal, value);
+                    const matched = matchPattern(c.pattern, value);
                     if (matched) {
                         if (c.guard) {
                             if (hasEffectCall(c.guard))

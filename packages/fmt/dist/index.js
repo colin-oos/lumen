@@ -11,12 +11,15 @@ function format(ast) {
 function formatOne(node) {
     switch (node.kind) {
         case 'ImportDecl':
+            if (node.name)
+                return `import ${node.name}${node.alias ? ` as ${node.alias}` : ''}`;
             return `import "${node.path}"`;
         case 'ModuleDecl':
             return `module ${node.name}`;
         case 'Let': {
             const type = node.type ? `: ${node.type}` : '';
-            return `let ${node.name}${type} = ${formatOne(node.expr)}`;
+            const kw = node.mutable ? 'mut' : 'let';
+            return `${kw} ${node.name}${type} = ${formatOne(node.expr)}`;
         }
         case 'EnumDecl': {
             const rhs = node.variants.map((v) => v.params && v.params.length > 0 ? `${v.name}(${v.params.join(', ')})` : v.name).join(' | ');
@@ -47,6 +50,8 @@ function formatOne(node) {
         }
         case 'LitText':
             return JSON.stringify(node.value);
+        case 'LitFloat':
+            return String(node.value);
         case 'LitNum':
             return String(node.value);
         case 'LitBool':
@@ -87,13 +92,22 @@ function formatOne(node) {
             return `send ${formatOne(node.actor)} ${formatOne(node.message)}`;
         case 'Ask':
             return `ask ${formatOne(node.actor)} ${formatOne(node.message)}`;
+        case 'Unary': {
+            const arg = formatOne(node.expr);
+            return node.op === 'not' ? `not ${arg}` : `-${arg}`;
+        }
         case 'Binary': {
             const left = formatOne(node.left);
             const right = formatOne(node.right);
             return `${left} ${node.op} ${right}`;
         }
+        case 'If': {
+            return `if ${formatOne(node.cond)} then ${formatOne(node.then)} else ${formatOne(node.else)}`;
+        }
         case 'Block':
             return `{ ${node.stmts.map(s => `${formatOne(s)};`).join(' ')} }`;
+        case 'PatternOr':
+            return `${formatOne(node.left)} | ${formatOne(node.right)}`;
         case 'Match': {
             const cases = node.cases.map((c) => {
                 const guard = c.guard ? ` if ${formatOne(c.guard)}` : '';

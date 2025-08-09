@@ -13,7 +13,7 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
   let currentModule: string | null = null
   // simple actor mailbox map
   const mailboxes = new Map<string, Array<unknown>>()
-  const actors = new Map<string, { paramName?: string, body?: Expr, effects: Set<string>, state?: Map<string, unknown>, handlers?: Array<{ test: (msg: unknown)=>boolean, reply?: (msg: unknown)=>unknown, run: ()=>unknown }> }>()
+  const actors = new Map<string, { paramName?: string, body?: Expr, effects: Set<string>, state?: Map<string, unknown>, handlers?: Array<{ test: (msg: unknown)=>boolean, reply?: (msg: unknown)=>unknown, run: ()=>unknown, guard?: Expr }> }>()
   const effectStack: Array<Set<string> | null> = []
   const stores = new Map<string, Array<any>>()
 
@@ -83,6 +83,8 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
       }
     }
   }
+
+  function truthy(b: unknown): boolean { return Boolean(b) }
 
   function evalExpr(e: Expr): unknown {
     trace.push({ sid: (e as any).sid ?? 'unknown', note: e.kind })
@@ -155,15 +157,18 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
             for (const s of d.state as any[]) state.set(s.name, evalExpr(s.init))
             const handlers = (d.handlers as any[]).map(h => ({
               test: (msg: unknown) => {
-                // very simple matching: wildcard '_', variable bind, OR pattern "(a | b)", literal equality, or record equality
+                // pattern matching with wildcard, literal equality, ctor equality, or pattern OR
                 const pat = h.pattern as any
-                const patVal = evalExpr(pat)
-                if (patVal === '_' || patVal === '*') return true
-                // OR pattern encoded as Binary with '|'? Our parser doesn't build that; support string form "(a | b)"
-                if (typeof patVal === 'string' && /\|/.test(patVal)) {
-                  return patVal.replace(/[()]/g,'').split('|').map(s=>s.trim().replace(/^"|"$/g,'')).some(v => JSON.stringify(msg) === JSON.stringify(v))
+                const resolve = (val: any): any => val && typeof val === 'object' && val.kind ? evalExpr(val) : val
+                const matchOne = (patv: any, v: any): boolean => {
+                  if (typeof patv === 'string' && (patv === '_' || patv === '*')) return true
+                  if (pat && pat.kind === 'PatternOr') return matchOne(resolve(pat.left), v) || matchOne(resolve(pat.right), v)
+                  const isCtor = (x: any) => x && typeof x === 'object' && '$' in x && Array.isArray(x.values)
+                  if (isCtor(patv) && isCtor(v)) return (patv as any).$ === (v as any).$ && JSON.stringify((patv as any).values) === JSON.stringify((v as any).values)
+                  return JSON.stringify(patv) === JSON.stringify(v)
                 }
-                return JSON.stringify(msg) === JSON.stringify(patVal)
+                const patVal = resolve(pat)
+                return matchOne(patVal, msg)
               },
               guard: h.guard ? (h.guard as any) : undefined,
               reply: h.replyType ? (msg: unknown) => evalExpr(h.body) : undefined,
@@ -200,6 +205,7 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
         return v
       }
       case 'LitText': return e.value
+      case 'LitFloat': return e.value
       case 'LitNum': return e.value
       case 'LitBool': return e.value
       case 'Var': {
@@ -325,6 +331,12 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
           return sink.value ?? null
         }
       }
+      case 'Unary': {
+        const v = evalExpr(e.expr)
+        if (e.op === 'not') return !truthy(v)
+        if (e.op === 'neg') return -(v as any)
+        return null
+      }
       case 'Binary': {
         const l = evalExpr(e.left)
         const r = evalExpr(e.right)
@@ -333,8 +345,21 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
           case '-': return (l as any) - (r as any)
           case '*': return (l as any) * (r as any)
           case '/': return (l as any) / (r as any)
+          case '%': return (l as any) % (r as any)
+          case '==': return JSON.stringify(l) === JSON.stringify(r)
+          case '!=': return JSON.stringify(l) !== JSON.stringify(r)
+          case '<': return (l as any) < (r as any)
+          case '<=': return (l as any) <= (r as any)
+          case '>': return (l as any) > (r as any)
+          case '>=': return (l as any) >= (r as any)
+          case 'and': return truthy(l) && truthy(r)
+          case 'or': return truthy(l) || truthy(r)
         }
         return null
+      }
+      case 'If': {
+        const c = evalExpr(e.cond)
+        return truthy(c) ? evalExpr(e.then) : evalExpr(e.else)
       }
       case 'RecordLit': {
         const obj: any = {}
@@ -358,13 +383,15 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
           }
           return false
         }
+        const matchPattern = (pat: any, val: any): boolean => {
+          const pv = evalExpr(pat)
+          if (typeof pv === 'string' && (pv === '_' || pv === '*')) return true
+          if ((pat as any).kind === 'PatternOr') return matchPattern((pat as any).left, val) || matchPattern((pat as any).right, val)
+          if (isCtor(pv) && isCtor(val)) return (pv as any).$ === (val as any).$ && equal((pv as any).values, (val as any).values)
+          return equal(pv, val)
+        }
         for (const c of e.cases as any[]) {
-          const patVal = evalExpr(c.pattern)
-          let matched = false
-          if (typeof patVal === 'string' && (patVal === '_' || patVal === '*')) matched = true
-          else if (isCtor(patVal) && isCtor(value)) {
-            matched = (patVal as any).$ === (value as any).$ && equal((patVal as any).values, (value as any).values)
-          } else matched = equal(patVal, value)
+          const matched = matchPattern(c.pattern, value)
           if (matched) {
             if (c.guard) {
               if (hasEffectCall(c.guard)) continue
