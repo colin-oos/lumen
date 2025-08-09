@@ -62,9 +62,21 @@ class Lexer {
     constructor(s) {
         this.s = s;
         this.i = 0;
+        this.line = 1;
+        this.col = 1;
     }
     peek() { return this.s[this.i] ?? ''; }
-    next() { return this.s[this.i++] ?? ''; }
+    next() {
+        const ch = this.s[this.i++] ?? '';
+        if (ch === '\n') {
+            this.line++;
+            this.col = 1;
+        }
+        else {
+            this.col++;
+        }
+        return ch;
+    }
     eatWs() { while (/\s/.test(this.peek()))
         this.next(); }
     eof() { return this.i >= this.s.length; }
@@ -74,6 +86,7 @@ class Lexer {
             const after = this.s[this.i + word.length] || ' ';
             if (!/[A-Za-z0-9_]/.test(after)) {
                 this.i += word.length;
+                this.col += word.length;
                 return true;
             }
         }
@@ -81,27 +94,32 @@ class Lexer {
     }
 }
 function parseExprRD(src) {
+    const lx = new Lexer(src);
+    function withSpan(node, start) {
+        ;
+        node.span = { line: start.line, col: start.col };
+        return node;
+    }
     const assignMatch = src.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/);
     if (assignMatch) {
-        return { kind: 'Assign', sid: (0, core_ir_1.sid)('assign'), name: assignMatch[1], expr: parseExprRD(assignMatch[2]) };
+        return { kind: 'Assign', sid: (0, core_ir_1.sid)('assign'), name: assignMatch[1], expr: parseExprRD(assignMatch[2]), span: { line: 1, col: 1 } };
     }
     const askMatch = src.match(/^ask\s+([^\s]+)\s+([\s\S]+)$/);
     if (askMatch) {
-        return { kind: 'Ask', sid: (0, core_ir_1.sid)('ask'), actor: parseExprRD(askMatch[1]), message: parseExprRD(askMatch[2]) };
+        return { kind: 'Ask', sid: (0, core_ir_1.sid)('ask'), actor: parseExprRD(askMatch[1]), message: parseExprRD(askMatch[2]), span: { line: 1, col: 1 } };
     }
     const sendMatch = src.match(/^send\s+([^,\s]+)\s*(?:,\s*|\s+)([\s\S]+)$/);
     if (sendMatch) {
-        return { kind: 'Send', sid: (0, core_ir_1.sid)('send'), actor: parseExprRD(sendMatch[1]), message: parseExprRD(sendMatch[2]) };
+        return { kind: 'Send', sid: (0, core_ir_1.sid)('send'), actor: parseExprRD(sendMatch[1]), message: parseExprRD(sendMatch[2]), span: { line: 1, col: 1 } };
     }
     const spawnMatch = src.match(/^spawn\s+([^\s]+)$/);
     if (spawnMatch) {
-        return { kind: 'Spawn', sid: (0, core_ir_1.sid)('spawn'), actorName: spawnMatch[1] };
+        return { kind: 'Spawn', sid: (0, core_ir_1.sid)('spawn'), actorName: spawnMatch[1], span: { line: 1, col: 1 } };
     }
-    const lx = new Lexer(src);
     lx.eatWs();
     const builtinEffects = new Set(['io', 'fs', 'net', 'db', 'time', 'nondet', 'gpu', 'unchecked', 'http']);
     function parseString() {
-        // assumes current peek is '"'
+        const start = { line: lx.line, col: lx.col };
         lx.next(); // consume opening
         let v = '';
         while (!lx.eof()) {
@@ -124,9 +142,10 @@ function parseExprRD(src) {
             else
                 v += ch;
         }
-        return { kind: 'LitText', sid: (0, core_ir_1.sid)('lit'), value: v };
+        return withSpan({ kind: 'LitText', sid: (0, core_ir_1.sid)('lit'), value: v }, start);
     }
     function parseNumber() {
+        const start = { line: lx.line, col: lx.col };
         let raw = '';
         let sawDot = false;
         while (/[0-9_\.]/.test(lx.peek())) {
@@ -136,26 +155,27 @@ function parseExprRD(src) {
             raw += ch;
         }
         const cleaned = raw.replace(/_/g, '');
-        if (sawDot)
-            return { kind: 'LitFloat', sid: (0, core_ir_1.sid)('lit'), value: Number(cleaned) };
-        return { kind: 'LitNum', sid: (0, core_ir_1.sid)('lit'), value: Number(cleaned) };
+        return withSpan((sawDot ? { kind: 'LitFloat', sid: (0, core_ir_1.sid)('lit'), value: Number(cleaned) } : { kind: 'LitNum', sid: (0, core_ir_1.sid)('lit'), value: Number(cleaned) }), start);
     }
     function parsePrimary() {
         lx.eatWs();
         // if-expr: if cond then expr else expr
         if (lx.eatKeyword('if')) {
+            const start = { line: lx.line, col: lx.col };
             const cond = parseOr();
             if (!lx.eatKeyword('then'))
-                return { kind: 'LitText', sid: (0, core_ir_1.sid)('lit'), value: '(parse error: expected then)' };
+                return withSpan({ kind: 'LitText', sid: (0, core_ir_1.sid)('lit'), value: '(parse error: expected then)' }, start);
             const thenE = parseOr();
             if (!lx.eatKeyword('else'))
-                return { kind: 'LitText', sid: (0, core_ir_1.sid)('lit'), value: '(parse error: expected else)' };
+                return withSpan({ kind: 'LitText', sid: (0, core_ir_1.sid)('lit'), value: '(parse error: expected else)' }, start);
             const elseE = parseOr();
-            return { kind: 'If', sid: (0, core_ir_1.sid)('if'), cond, then: thenE, else: elseE };
+            return withSpan({ kind: 'If', sid: (0, core_ir_1.sid)('if'), cond, then: thenE, else: elseE }, start);
         }
         // expression-level match: match <expr> { case pat [if g] -> expr; ... }
         if (lx.s.slice(lx['i'], lx['i'] + 5) === 'match' && /\b/.test(lx.s[lx['i'] + 5] || ' ')) {
+            const start = { line: lx.line, col: lx.col };
             lx['i'] += 5;
+            lx.col += 5;
             lx.eatWs();
             const scr = parseOr();
             lx.eatWs();
@@ -196,7 +216,7 @@ function parseExprRD(src) {
                 }
                 if (lx.peek() === '}')
                     lx.next();
-                return { kind: 'Match', sid: (0, core_ir_1.sid)('match'), scrutinee: scr, cases };
+                return withSpan({ kind: 'Match', sid: (0, core_ir_1.sid)('match'), scrutinee: scr, cases }, start);
             }
         }
         if (lx.peek() === '"')
@@ -204,23 +224,29 @@ function parseExprRD(src) {
         if (/[0-9]/.test(lx.peek()))
             return parseNumber();
         if (lx.s.slice(lx['i'], lx['i'] + 4) === 'true') {
+            const start = { line: lx.line, col: lx.col };
             lx['i'] += 4;
-            return { kind: 'LitBool', sid: (0, core_ir_1.sid)('lit'), value: true };
+            lx.col += 4;
+            return withSpan({ kind: 'LitBool', sid: (0, core_ir_1.sid)('lit'), value: true }, start);
         }
         if (lx.s.slice(lx['i'], lx['i'] + 5) === 'false') {
+            const start = { line: lx.line, col: lx.col };
             lx['i'] += 5;
-            return { kind: 'LitBool', sid: (0, core_ir_1.sid)('lit'), value: false };
+            lx.col += 5;
+            return withSpan({ kind: 'LitBool', sid: (0, core_ir_1.sid)('lit'), value: false }, start);
         }
         if (lx.peek() === '(') {
+            const start = { line: lx.line, col: lx.col };
             lx.next();
             const e = parseOr();
             lx.eatWs();
             if (lx.peek() === ')')
                 lx.next();
-            return e;
+            return withSpan(e, start);
         }
         if (lx.peek() === '{') {
             // Decide between RecordLit, MapLit and Block by scanning ahead for ':' vs '->' vs ';'
+            const start = { line: lx.line, col: lx.col };
             let j = lx['i'] + 1;
             let depth = 0;
             let sawColon = false;
@@ -278,7 +304,7 @@ function parseExprRD(src) {
                 }
                 if (lx.peek() === '}')
                     lx.next();
-                return { kind: 'RecordLit', sid: (0, core_ir_1.sid)('rec'), fields };
+                return withSpan({ kind: 'RecordLit', sid: (0, core_ir_1.sid)('rec'), fields }, start);
             }
             else if (sawArrow && !sawSemicolon) {
                 // Map literal: { key -> value, ... }
@@ -308,7 +334,7 @@ function parseExprRD(src) {
                 }
                 if (lx.peek() === '}')
                     lx.next();
-                return { kind: 'MapLit', sid: (0, core_ir_1.sid)('map'), entries };
+                return withSpan({ kind: 'MapLit', sid: (0, core_ir_1.sid)('map'), entries }, start);
             }
             else {
                 // Block: { expr; expr; ... }
@@ -339,10 +365,11 @@ function parseExprRD(src) {
                 }
                 if (lx.peek() === '}')
                     lx.next();
-                return { kind: 'Block', sid: (0, core_ir_1.sid)('block'), stmts };
+                return withSpan({ kind: 'Block', sid: (0, core_ir_1.sid)('block'), stmts }, start);
             }
         }
         if (lx.peek() === '[') {
+            const start = { line: lx.line, col: lx.col };
             lx.next();
             const elements = [];
             lx.eatWs();
@@ -361,11 +388,12 @@ function parseExprRD(src) {
             }
             if (lx.peek() === ']')
                 lx.next();
-            return { kind: 'TupleLit', sid: (0, core_ir_1.sid)('tuple'), elements };
+            return withSpan({ kind: 'TupleLit', sid: (0, core_ir_1.sid)('tuple'), elements }, start);
         }
         // identifier (possibly qualified with dots) or call
         let name = '';
         if (/[A-Za-z_]/.test(lx.peek())) {
+            const start = { line: lx.line, col: lx.col };
             while (/[A-Za-z0-9_]/.test(lx.peek()))
                 name += lx.next();
             // allow qualified: foo.bar.baz
@@ -400,30 +428,33 @@ function parseExprRD(src) {
                     const head = name.slice(0, dotIdx);
                     const op = name.slice(dotIdx + 1);
                     if (builtinEffects.has(head))
-                        return { kind: 'EffectCall', sid: (0, core_ir_1.sid)('eff'), effect: head, op, args };
+                        return withSpan({ kind: 'EffectCall', sid: (0, core_ir_1.sid)('eff'), effect: head, op, args }, start);
                 }
                 const lastSeg = name.includes('.') ? name.split('.').pop() || '' : name;
                 if (/^[A-Z]/.test(lastSeg))
-                    return { kind: 'Ctor', sid: (0, core_ir_1.sid)('ctor'), name, args };
+                    return withSpan({ kind: 'Ctor', sid: (0, core_ir_1.sid)('ctor'), name, args }, start);
                 if (name === 'spawn' && args.length === 1 && args[0].kind === 'Var')
-                    return { kind: 'Spawn', sid: (0, core_ir_1.sid)('spawn'), actorName: args[0].name };
+                    return withSpan({ kind: 'Spawn', sid: (0, core_ir_1.sid)('spawn'), actorName: args[0].name }, start);
                 if (name === 'ask' && (args.length === 2 || args.length === 3)) {
                     const timeout = args.length === 3 && args[2].kind === 'LitNum' ? args[2].value : undefined;
-                    return { kind: 'Ask', sid: (0, core_ir_1.sid)('ask'), actor: args[0], message: args[1], timeoutMs: timeout };
+                    return withSpan({ kind: 'Ask', sid: (0, core_ir_1.sid)('ask'), actor: args[0], message: args[1], timeoutMs: timeout }, start);
                 }
-                return { kind: 'Call', sid: (0, core_ir_1.sid)('call'), callee: { kind: 'Var', sid: (0, core_ir_1.sid)('var'), name }, args };
+                return withSpan({ kind: 'Call', sid: (0, core_ir_1.sid)('call'), callee: { kind: 'Var', sid: (0, core_ir_1.sid)('var'), name }, args }, start);
             }
-            return { kind: 'Var', sid: (0, core_ir_1.sid)('var'), name };
+            return withSpan({ kind: 'Var', sid: (0, core_ir_1.sid)('var'), name }, start);
         }
-        return { kind: 'LitText', sid: (0, core_ir_1.sid)('lit'), value: '' };
+        return withSpan({ kind: 'LitText', sid: (0, core_ir_1.sid)('lit'), value: '' }, { line: lx.line, col: lx.col });
     }
     function parseUnary() {
         lx.eatWs();
-        if (lx.eatKeyword('not'))
-            return { kind: 'Unary', sid: (0, core_ir_1.sid)('un'), op: 'not', expr: parseUnary() };
+        if (lx.eatKeyword('not')) {
+            const start = { line: lx.line, col: lx.col };
+            return withSpan({ kind: 'Unary', sid: (0, core_ir_1.sid)('un'), op: 'not', expr: parseUnary() }, start);
+        }
         if (lx.peek() === '-') {
+            const start = { line: lx.line, col: lx.col };
             lx.next();
-            return { kind: 'Unary', sid: (0, core_ir_1.sid)('un'), op: 'neg', expr: parseUnary() };
+            return withSpan({ kind: 'Unary', sid: (0, core_ir_1.sid)('un'), op: 'neg', expr: parseUnary() }, start);
         }
         return parsePrimary();
     }
@@ -433,9 +464,10 @@ function parseExprRD(src) {
             lx.eatWs();
             const ch = lx.peek();
             if (ch === '*' || ch === '/' || ch === '%') {
+                const start = { line: lx.line, col: lx.col };
                 const op = lx.next();
                 const right = parseUnary();
-                left = { kind: 'Binary', sid: (0, core_ir_1.sid)('bin'), op, left, right };
+                left = withSpan({ kind: 'Binary', sid: (0, core_ir_1.sid)('bin'), op, left, right }, start);
             }
             else
                 break;
@@ -448,9 +480,10 @@ function parseExprRD(src) {
             lx.eatWs();
             const ch = lx.peek();
             if (ch === '+' || ch === '-') {
+                const start = { line: lx.line, col: lx.col };
                 const op = lx.next();
                 const right = parseMul();
-                left = { kind: 'Binary', sid: (0, core_ir_1.sid)('bin'), op, left, right };
+                left = withSpan({ kind: 'Binary', sid: (0, core_ir_1.sid)('bin'), op, left, right }, start);
             }
             else
                 break;
@@ -461,20 +494,23 @@ function parseExprRD(src) {
         let left = parseAdd();
         while (true) {
             lx.eatWs();
+            const start = { line: lx.line, col: lx.col };
             const two = lx.s.slice(lx['i'], lx['i'] + 2);
             const one = lx.s.slice(lx['i'], lx['i'] + 1);
             let op = null;
             if (two === '==' || two === '!=' || two === '<=' || two === '>=') {
                 op = two;
                 lx['i'] += 2;
+                lx.col += 2;
             }
             else if (one === '<' || one === '>') {
                 op = one;
                 lx['i'] += 1;
+                lx.col += 1;
             }
             if (op) {
                 const right = parseAdd();
-                left = { kind: 'Binary', sid: (0, core_ir_1.sid)('bin'), op: op, left, right };
+                left = withSpan({ kind: 'Binary', sid: (0, core_ir_1.sid)('bin'), op: op, left, right }, start);
             }
             else
                 break;
@@ -486,8 +522,9 @@ function parseExprRD(src) {
         while (true) {
             lx.eatWs();
             if (lx.eatKeyword('and')) {
+                const start = { line: lx.line, col: lx.col };
                 const right = parseCompare();
-                left = { kind: 'Binary', sid: (0, core_ir_1.sid)('bin'), op: 'and', left, right };
+                left = withSpan({ kind: 'Binary', sid: (0, core_ir_1.sid)('bin'), op: 'and', left, right }, start);
             }
             else
                 break;
@@ -499,9 +536,12 @@ function parseExprRD(src) {
         while (true) {
             lx.eatWs();
             if (lx.eatKeyword('or')) {
+                const start = { line: lx.line, col: lx.col };
                 const right = parseAnd();
-                left = { kind: 'Binary', sid: (0, core_ir_1.sid)('bin'), op: 'or', left, right };
+                left = withSpan({ kind: 'Binary', sid: (0, core_ir_1.sid)('bin'), op: 'or', left, right }, start);
             }
+            else
+                break;
         }
         return left;
     }

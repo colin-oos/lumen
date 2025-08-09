@@ -49,44 +49,54 @@ function parsePattern(src: string): Expr {
 
 class Lexer {
   i = 0
+  line = 1
+  col = 1
   constructor(public s: string) {}
   peek(): string { return this.s[this.i] ?? '' }
-  next(): string { return this.s[this.i++] ?? '' }
+  next(): string {
+    const ch = this.s[this.i++] ?? ''
+    if (ch === '\n') { this.line++; this.col = 1 } else { this.col++ }
+    return ch
+  }
   eatWs() { while (/\s/.test(this.peek())) this.next() }
   eof(): boolean { return this.i >= this.s.length }
   eatKeyword(word: string): boolean {
     this.eatWs()
     if (this.s.slice(this.i, this.i + word.length) === word) {
       const after = this.s[this.i + word.length] || ' '
-      if (!/[A-Za-z0-9_]/.test(after)) { this.i += word.length; return true }
+      if (!/[A-Za-z0-9_]/.test(after)) { this.i += word.length; this.col += word.length; return true }
     }
     return false
   }
 }
 
 function parseExprRD(src: string): Expr {
+  const lx = new Lexer(src)
+  function withSpan<T extends Expr>(node: T, start: { line: number, col: number }): T {
+    ;(node as any).span = { line: start.line, col: start.col }
+    return node
+  }
   const assignMatch = src.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/)
   if (assignMatch) {
-    return { kind: 'Assign', sid: sid('assign'), name: assignMatch[1], expr: parseExprRD(assignMatch[2]) } as any
+    return { kind: 'Assign', sid: sid('assign'), name: assignMatch[1], expr: parseExprRD(assignMatch[2]), span: { line: 1, col: 1 } } as any
   }
   const askMatch = src.match(/^ask\s+([^\s]+)\s+([\s\S]+)$/)
   if (askMatch) {
-    return { kind: 'Ask', sid: sid('ask'), actor: parseExprRD(askMatch[1]), message: parseExprRD(askMatch[2]) } as any
+    return { kind: 'Ask', sid: sid('ask'), actor: parseExprRD(askMatch[1]), message: parseExprRD(askMatch[2]), span: { line: 1, col: 1 } } as any
   }
   const sendMatch = src.match(/^send\s+([^,\s]+)\s*(?:,\s*|\s+)([\s\S]+)$/)
   if (sendMatch) {
-    return { kind: 'Send', sid: sid('send'), actor: parseExprRD(sendMatch[1]), message: parseExprRD(sendMatch[2]) } as any
+    return { kind: 'Send', sid: sid('send'), actor: parseExprRD(sendMatch[1]), message: parseExprRD(sendMatch[2]), span: { line: 1, col: 1 } } as any
   }
   const spawnMatch = src.match(/^spawn\s+([^\s]+)$/)
   if (spawnMatch) {
-    return { kind: 'Spawn', sid: sid('spawn'), actorName: spawnMatch[1] } as any
+    return { kind: 'Spawn', sid: sid('spawn'), actorName: spawnMatch[1], span: { line: 1, col: 1 } } as any
   }
-  const lx = new Lexer(src)
   lx.eatWs()
   const builtinEffects = new Set(['io','fs','net','db','time','nondet','gpu','unchecked','http'])
 
   function parseString(): Expr {
-    // assumes current peek is '"'
+    const start = { line: lx.line, col: lx.col }
     lx.next() // consume opening
     let v = ''
     while (!lx.eof()) {
@@ -101,10 +111,11 @@ function parseExprRD(src: string): Expr {
         else v += n
       } else v += ch
     }
-    return { kind: 'LitText', sid: sid('lit'), value: v }
+    return withSpan({ kind: 'LitText', sid: sid('lit'), value: v } as any, start)
   }
 
   function parseNumber(): Expr {
+    const start = { line: lx.line, col: lx.col }
     let raw = ''
     let sawDot = false
     while (/[0-9_\.]/.test(lx.peek())) {
@@ -113,24 +124,25 @@ function parseExprRD(src: string): Expr {
       raw += ch
     }
     const cleaned = raw.replace(/_/g, '')
-    if (sawDot) return { kind: 'LitFloat', sid: sid('lit'), value: Number(cleaned) } as any
-    return { kind: 'LitNum', sid: sid('lit'), value: Number(cleaned) }
+    return withSpan((sawDot ? { kind: 'LitFloat', sid: sid('lit'), value: Number(cleaned) } : { kind: 'LitNum', sid: sid('lit'), value: Number(cleaned) }) as any, start)
   }
 
   function parsePrimary(): Expr {
     lx.eatWs()
     // if-expr: if cond then expr else expr
     if (lx.eatKeyword('if')) {
+      const start = { line: lx.line, col: lx.col }
       const cond = parseOr()
-      if (!lx.eatKeyword('then')) return { kind: 'LitText', sid: sid('lit'), value: '(parse error: expected then)' }
+      if (!lx.eatKeyword('then')) return withSpan({ kind: 'LitText', sid: sid('lit'), value: '(parse error: expected then)' } as any, start)
       const thenE = parseOr()
-      if (!lx.eatKeyword('else')) return { kind: 'LitText', sid: sid('lit'), value: '(parse error: expected else)' }
+      if (!lx.eatKeyword('else')) return withSpan({ kind: 'LitText', sid: sid('lit'), value: '(parse error: expected else)' } as any, start)
       const elseE = parseOr()
-      return { kind: 'If', sid: sid('if'), cond, then: thenE, else: elseE } as any
+      return withSpan({ kind: 'If', sid: sid('if'), cond, then: thenE, else: elseE } as any, start)
     }
     // expression-level match: match <expr> { case pat [if g] -> expr; ... }
     if (lx.s.slice(lx['i'], lx['i'] + 5) === 'match' && /\b/.test(lx.s[lx['i'] + 5] || ' ')) {
-      lx['i'] += 5
+      const start = { line: lx.line, col: lx.col }
+      lx['i'] += 5; lx.col += 5
       lx.eatWs()
       const scr = parseOr()
       lx.eatWs()
@@ -160,16 +172,17 @@ function parseExprRD(src: string): Expr {
           lx.eatWs()
         }
         if (lx.peek() === '}') lx.next()
-        return { kind: 'Match', sid: sid('match'), scrutinee: scr, cases } as any
+        return withSpan({ kind: 'Match', sid: sid('match'), scrutinee: scr, cases } as any, start)
       }
     }
     if (lx.peek() === '"') return parseString()
     if (/[0-9]/.test(lx.peek())) return parseNumber()
-    if (lx.s.slice(lx['i'], lx['i'] + 4) === 'true') { lx['i'] += 4; return { kind: 'LitBool', sid: sid('lit'), value: true } }
-    if (lx.s.slice(lx['i'], lx['i'] + 5) === 'false') { lx['i'] += 5; return { kind: 'LitBool', sid: sid('lit'), value: false } }
-    if (lx.peek() === '(') { lx.next(); const e = parseOr(); lx.eatWs(); if (lx.peek() === ')') lx.next(); return e }
+    if (lx.s.slice(lx['i'], lx['i'] + 4) === 'true') { const start = { line: lx.line, col: lx.col }; lx['i'] += 4; lx.col += 4; return withSpan({ kind: 'LitBool', sid: sid('lit'), value: true } as any, start) }
+    if (lx.s.slice(lx['i'], lx['i'] + 5) === 'false') { const start = { line: lx.line, col: lx.col }; lx['i'] += 5; lx.col += 5; return withSpan({ kind: 'LitBool', sid: sid('lit'), value: false } as any, start) }
+    if (lx.peek() === '(') { const start = { line: lx.line, col: lx.col }; lx.next(); const e = parseOr(); lx.eatWs(); if (lx.peek() === ')') lx.next(); return withSpan(e as any, start) }
     if (lx.peek() === '{') {
       // Decide between RecordLit, MapLit and Block by scanning ahead for ':' vs '->' vs ';'
+      const start = { line: lx.line, col: lx.col }
       let j = lx['i'] + 1
       let depth = 0
       let sawColon = false
@@ -201,7 +214,7 @@ function parseExprRD(src: string): Expr {
           }
         }
         if (lx.peek() === '}') lx.next()
-        return { kind: 'RecordLit', sid: sid('rec'), fields }
+        return withSpan({ kind: 'RecordLit', sid: sid('rec'), fields } as any, start)
       } else if (sawArrow && !sawSemicolon) {
         // Map literal: { key -> value, ... }
         lx.next()
@@ -219,7 +232,7 @@ function parseExprRD(src: string): Expr {
           }
         }
         if (lx.peek() === '}') lx.next()
-        return { kind: 'MapLit', sid: sid('map'), entries } as any
+        return withSpan({ kind: 'MapLit', sid: sid('map'), entries } as any, start)
       } else {
         // Block: { expr; expr; ... }
         lx.next()
@@ -239,20 +252,22 @@ function parseExprRD(src: string): Expr {
           lx.eatWs()
         }
         if (lx.peek() === '}') lx.next()
-        return { kind: 'Block', sid: sid('block'), stmts }
+        return withSpan({ kind: 'Block', sid: sid('block'), stmts } as any, start)
       }
     }
     if (lx.peek() === '[') {
+      const start = { line: lx.line, col: lx.col }
       lx.next(); const elements: Expr[] = []
       lx.eatWs(); if (lx.peek() !== ']') {
         while (true) { const el = parseOr(); elements.push(el); lx.eatWs(); if (lx.peek() === ',') { lx.next(); lx.eatWs(); continue } break }
       }
       if (lx.peek() === ']') lx.next()
-      return { kind: 'TupleLit', sid: sid('tuple'), elements }
+      return withSpan({ kind: 'TupleLit', sid: sid('tuple'), elements } as any, start)
     }
     // identifier (possibly qualified with dots) or call
     let name = ''
     if (/[A-Za-z_]/.test(lx.peek())) {
+      const start = { line: lx.line, col: lx.col }
       while (/[A-Za-z0-9_]/.test(lx.peek())) name += lx.next()
       // allow qualified: foo.bar.baz
       while (lx.peek() === '.') { name += lx.next(); while (/[A-Za-z0-9_]/.test(lx.peek())) name += lx.next() }
@@ -270,26 +285,26 @@ function parseExprRD(src: string): Expr {
         if (dotIdx > 0) {
           const head = name.slice(0, dotIdx)
           const op = name.slice(dotIdx + 1)
-          if (builtinEffects.has(head)) return { kind: 'EffectCall', sid: sid('eff'), effect: head as any, op, args }
+          if (builtinEffects.has(head)) return withSpan({ kind: 'EffectCall', sid: sid('eff'), effect: head as any, op, args } as any, start)
         }
         const lastSeg = name.includes('.') ? name.split('.').pop() || '' : name
-        if (/^[A-Z]/.test(lastSeg)) return { kind: 'Ctor', sid: sid('ctor'), name, args } as any
-        if (name === 'spawn' && args.length === 1 && args[0].kind === 'Var') return { kind: 'Spawn', sid: sid('spawn'), actorName: (args[0] as any).name } as any
+        if (/^[A-Z]/.test(lastSeg)) return withSpan({ kind: 'Ctor', sid: sid('ctor'), name, args } as any, start)
+        if (name === 'spawn' && args.length === 1 && args[0].kind === 'Var') return withSpan({ kind: 'Spawn', sid: sid('spawn'), actorName: (args[0] as any).name } as any, start)
         if (name === 'ask' && (args.length === 2 || args.length === 3)) {
           const timeout = args.length === 3 && args[2].kind === 'LitNum' ? (args[2] as any).value : undefined
-          return { kind: 'Ask', sid: sid('ask'), actor: args[0], message: args[1], timeoutMs: timeout } as any
+          return withSpan({ kind: 'Ask', sid: sid('ask'), actor: args[0], message: args[1], timeoutMs: timeout } as any, start)
         }
-        return { kind: 'Call', sid: sid('call'), callee: { kind: 'Var', sid: sid('var'), name }, args }
+        return withSpan({ kind: 'Call', sid: sid('call'), callee: { kind: 'Var', sid: sid('var'), name } as any, args } as any, start)
       }
-      return { kind: 'Var', sid: sid('var'), name }
+      return withSpan({ kind: 'Var', sid: sid('var'), name } as any, start)
     }
-    return { kind: 'LitText', sid: sid('lit'), value: '' }
+    return withSpan({ kind: 'LitText', sid: sid('lit'), value: '' } as any, { line: lx.line, col: lx.col })
   }
 
   function parseUnary(): Expr {
     lx.eatWs()
-    if (lx.eatKeyword('not')) return { kind: 'Unary', sid: sid('un'), op: 'not', expr: parseUnary() } as any
-    if (lx.peek() === '-') { lx.next(); return { kind: 'Unary', sid: sid('un'), op: 'neg', expr: parseUnary() } as any }
+    if (lx.eatKeyword('not')) { const start = { line: lx.line, col: lx.col }; return withSpan({ kind: 'Unary', sid: sid('un'), op: 'not', expr: parseUnary() } as any, start) }
+    if (lx.peek() === '-') { const start = { line: lx.line, col: lx.col }; lx.next(); return withSpan({ kind: 'Unary', sid: sid('un'), op: 'neg', expr: parseUnary() } as any, start) }
     return parsePrimary()
   }
   function parseMul(): Expr {
@@ -298,9 +313,10 @@ function parseExprRD(src: string): Expr {
       lx.eatWs()
       const ch = lx.peek()
       if (ch === '*' || ch === '/' || ch === '%') {
+        const start = { line: lx.line, col: lx.col }
         const op = lx.next() as '*' | '/' | '%'
         const right = parseUnary()
-        left = { kind: 'Binary', sid: sid('bin'), op, left, right } as any
+        left = withSpan({ kind: 'Binary', sid: sid('bin'), op, left, right } as any, start)
       } else break
     }
     return left
@@ -311,9 +327,10 @@ function parseExprRD(src: string): Expr {
       lx.eatWs()
       const ch = lx.peek()
       if (ch === '+' || ch === '-') {
+        const start = { line: lx.line, col: lx.col }
         const op = lx.next() as '+' | '-'
         const right = parseMul()
-        left = { kind: 'Binary', sid: sid('bin'), op, left, right } as any
+        left = withSpan({ kind: 'Binary', sid: sid('bin'), op, left, right } as any, start)
       } else break
     }
     return left
@@ -322,14 +339,15 @@ function parseExprRD(src: string): Expr {
     let left = parseAdd()
     while (true) {
       lx.eatWs()
+      const start = { line: lx.line, col: lx.col }
       const two = lx.s.slice(lx['i'], lx['i'] + 2)
       const one = lx.s.slice(lx['i'], lx['i'] + 1)
       let op: string | null = null
-      if (two === '==' || two === '!=' || two === '<=' || two === '>=') { op = two; lx['i'] += 2 }
-      else if (one === '<' || one === '>') { op = one; lx['i'] += 1 }
+      if (two === '==' || two === '!=' || two === '<=' || two === '>=') { op = two; lx['i'] += 2; lx.col += 2 }
+      else if (one === '<' || one === '>') { op = one; lx['i'] += 1; lx.col += 1 }
       if (op) {
         const right = parseAdd()
-        left = { kind: 'Binary', sid: sid('bin'), op: op as any, left, right } as any
+        left = withSpan({ kind: 'Binary', sid: sid('bin'), op: op as any, left, right } as any, start)
       } else break
     }
     return left
@@ -338,7 +356,7 @@ function parseExprRD(src: string): Expr {
     let left = parseCompare()
     while (true) {
       lx.eatWs()
-      if (lx.eatKeyword('and')) { const right = parseCompare(); left = { kind: 'Binary', sid: sid('bin'), op: 'and', left, right } as any }
+      if (lx.eatKeyword('and')) { const start = { line: lx.line, col: lx.col }; const right = parseCompare(); left = withSpan({ kind: 'Binary', sid: sid('bin'), op: 'and', left, right } as any, start) }
       else break
     }
     return left
@@ -347,7 +365,8 @@ function parseExprRD(src: string): Expr {
     let left = parseAnd()
     while (true) {
       lx.eatWs()
-      if (lx.eatKeyword('or')) { const right = parseAnd(); left = { kind: 'Binary', sid: sid('bin'), op: 'or', left, right } as any }
+      if (lx.eatKeyword('or')) { const start = { line: lx.line, col: lx.col }; const right = parseAnd(); left = withSpan({ kind: 'Binary', sid: sid('bin'), op: 'or', left, right } as any, start) }
+      else break
     }
     return left
   }
