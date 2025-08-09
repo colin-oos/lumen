@@ -73,6 +73,10 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
   env.set('stdlib.lengthList', (xs: unknown) => Array.isArray(xs) ? (xs as any[]).length : 0)
   env.set('stdlib.head', (xs: unknown) => Array.isArray(xs) && (xs as any[]).length > 0 ? (xs as any[])[0] : null)
   env.set('stdlib.tail', (xs: unknown) => Array.isArray(xs) && (xs as any[]).length > 0 ? (xs as any[]).slice(1) : [])
+  env.set('stdlib.trim', (s: unknown) => typeof s === 'string' ? (s as string).trim() : s)
+  env.set('stdlib.split', (s: unknown, sep: unknown) => typeof s === 'string' && typeof sep === 'string' ? (s as string).split(sep as string) : [])
+  env.set('stdlib.join', (xs: unknown, sep: unknown) => Array.isArray(xs) && typeof sep === 'string' ? (xs as any[]).join(sep as string) : '')
+  env.set('stdlib.replace', (s: unknown, a: unknown, b: unknown) => typeof s === 'string' && typeof a === 'string' && typeof b === 'string' ? (s as string).split(a as string).join(b as string) : s)
 
   function wrapMessage(m: unknown): { value: unknown, sink?: { done: boolean, value?: unknown } } {
     if (m && typeof m === 'object' && 'value' in (m as any)) return m as any

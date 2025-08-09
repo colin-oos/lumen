@@ -78,6 +78,10 @@ function run(ast, options) {
     env.set('stdlib.lengthList', (xs) => Array.isArray(xs) ? xs.length : 0);
     env.set('stdlib.head', (xs) => Array.isArray(xs) && xs.length > 0 ? xs[0] : null);
     env.set('stdlib.tail', (xs) => Array.isArray(xs) && xs.length > 0 ? xs.slice(1) : []);
+    env.set('stdlib.trim', (s) => typeof s === 'string' ? s.trim() : s);
+    env.set('stdlib.split', (s, sep) => typeof s === 'string' && typeof sep === 'string' ? s.split(sep) : []);
+    env.set('stdlib.join', (xs, sep) => Array.isArray(xs) && typeof sep === 'string' ? xs.join(sep) : '');
+    env.set('stdlib.replace', (s, a, b) => typeof s === 'string' && typeof a === 'string' && typeof b === 'string' ? s.split(a).join(b) : s);
     function wrapMessage(m) {
         if (m && typeof m === 'object' && 'value' in m)
             return m;
