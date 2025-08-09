@@ -59,20 +59,38 @@ let s = stdlib.reduce(zs, 0, fn(a: Int, x: Int): Int = a + x)
   ensure(arr[2] === 2 + 4, 'stdlib map/filter/reduce failed')
 }
 
-// Break/Continue smoke (no assertion until semantics finalized)
+// Break assertion (while)
 {
   const src = `
-let acc = 0
-for x in [1,2,3,4,5] {
-  if x == 3 then { continue } else acc = acc + x;
-  if x == 4 then { break } else acc = acc;
+let sum = 0
+let i = 0
+while i < 10 {
+  i = i + 1;
+  if i == 5 then { break } else sum = sum + i;
 }
-acc
+sum
 `.trim()
   const ast = parse(src)
   assignStableSids(ast)
   const res = run(ast)
-  console.log('break/continue smoke:', res.value)
+  ensure(res.value === (1 + 2 + 3 + 4), 'while break failed')
+}
+
+// Continue assertion (while)
+{
+  const src = `
+let sum = 0
+let i = 0
+while i < 5 {
+  i = i + 1;
+  if i == 3 then { continue } else sum = sum + i;
+}
+sum
+`.trim()
+  const ast = parse(src)
+  assignStableSids(ast)
+  const res = run(ast)
+  ensure(res.value === (1 + 2 + 4 + 5), 'while continue failed')
 }
 
 console.log('loops-stdlib OK')
