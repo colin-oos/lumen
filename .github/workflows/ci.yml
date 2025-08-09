@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+
+  test-sharded:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [ core, effects, actors, lsp, extras ]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install
+        run: npm ci
+      - name: Install better-sqlite3 (optional)
+        run: npm run ci:install-sqlite
+      - name: Generate SQLite DB (optional)
+        run: npm run gen:sqlite || true
+      - name: Build
+        run: npm run build
+      - name: Run shard
+        run: npm run test:${{ matrix.shard }}
