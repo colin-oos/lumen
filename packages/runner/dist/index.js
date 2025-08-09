@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.run = run;
 const sqlite_1 = require("./adapters/sqlite");
+const http_1 = require("./adapters/http");
 function run(ast, options) {
     const trace = [];
     const env = new Map();
@@ -360,6 +361,13 @@ function run(ast, options) {
                             return `(db.load error)`;
                         }
                     }
+                }
+                if (e.effect === 'http') {
+                    const args = e.args.map(evalExpr);
+                    if (e.op === 'get')
+                        return (0, http_1.httpGet)(String(args[0]));
+                    if (e.op === 'post')
+                        return (0, http_1.httpPost)(String(args[0]), String(args[1] ?? ''));
                 }
                 if (e.effect === 'fs') {
                     const args = e.args.map(evalExpr);

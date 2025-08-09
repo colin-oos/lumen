@@ -1,5 +1,6 @@
 import { Expr } from '@lumen/core-ir'
 import { isSqliteConfig, loadSqlite } from './adapters/sqlite'
+import { httpGet, httpPost } from './adapters/http'
 
 export interface RunResult {
   value: unknown
@@ -283,6 +284,11 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
               return JSON.parse(raw)
             } catch { return `(db.load error)` }
           }
+        }
+        if (e.effect === 'http') {
+          const args = e.args.map(evalExpr)
+          if (e.op === 'get') return httpGet(String(args[0]))
+          if (e.op === 'post') return httpPost(String(args[0]), String(args[1] ?? ''))
         }
         if (e.effect === 'fs') {
           const args = e.args.map(evalExpr)

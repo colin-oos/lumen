@@ -44,7 +44,7 @@ function parseExprRD(src: string): Expr {
   }
   const lx = new Lexer(src)
   lx.eatWs()
-  const builtinEffects = new Set(['io','fs','net','db','time','nondet','gpu','unchecked'])
+  const builtinEffects = new Set(['io','fs','net','db','time','nondet','gpu','unchecked','http'])
   function parsePrimary(): Expr {
     lx.eatWs()
     // expression-level match: match <expr> { pat -> expr; ... }

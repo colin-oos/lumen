@@ -1,0 +1,11 @@
+fn fetch(url) raises http = http.get(url)
+enum Msg = Request(Text) | Get
+actor Service {
+  state last: Text = ""
+  on Request("/ping") -> { last: "" }
+  on Get() reply Text -> last
+}
+let s = spawn Service
+send s Request("/ping")
+let v = ask s Get()
+let tmp_6 = io.print(v)
