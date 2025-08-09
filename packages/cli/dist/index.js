@@ -384,6 +384,31 @@ function emitTypes(ast) {
             return 'null';
         return 'unknown';
     }
+    function inferParamTypes(fn) {
+        const names = (fn.params || []).map((p) => p.name);
+        const inferred = Object.fromEntries(names.map((n) => [n, null]));
+        function walk(e) {
+            if (!e || typeof e !== 'object')
+                return;
+            if (e.kind === 'Binary') {
+                if (e.left?.kind === 'Var' && names.includes(e.left.name))
+                    inferred[e.left.name] = inferred[e.left.name] || 'Int';
+                if (e.right?.kind === 'Var' && names.includes(e.right.name))
+                    inferred[e.right.name] = inferred[e.right.name] || 'Int';
+            }
+            for (const k of Object.keys(e)) {
+                const v = e[k];
+                if (v && typeof v === 'object' && 'kind' in v)
+                    walk(v);
+                if (Array.isArray(v))
+                    for (const it of v)
+                        if (it && typeof it === 'object' && 'kind' in it)
+                            walk(it);
+            }
+        }
+        walk(fn.body);
+        return names.map((n) => inferred[n]);
+    }
     for (const d of ast.decls) {
         if (d.kind === 'EnumDecl') {
             enumToCtors.set(d.name, d.variants);
@@ -447,7 +472,8 @@ function emitTypes(ast) {
         }
         if (d.kind === 'Fn' && d.name) {
             const name = d.name;
-            const params = (d.params || []).map((p) => tsType(p.type)).join(', ');
+            const inferred = inferParamTypes(d);
+            const params = (d.params || []).map((p, i) => tsType(p.type) !== 'unknown' ? tsType(p.type) : (inferred[i] ? tsType(inferred[i]) : 'unknown')).join(', ');
             const ret = tsType(d.returnType);
             lines.push(`type ${name}Fn = (${params}) => ${ret}`);
         }
