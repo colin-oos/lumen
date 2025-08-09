@@ -52,3 +52,27 @@ fn reduce(xs, init, f) = {
   for i in xs { acc = f(acc, i); }
   acc
 }
+
+// Additional List helpers
+fn lengthList(xs): Int = {
+  let n = 0
+  for _ in xs { n = n + 1; }
+  n
+}
+
+fn head(xs) = match xs { case [h, _] | [h] -> h }
+
+fn tail(xs) = match xs { case [_, t] -> t }
+
+// Map helpers
+fn keys(xs) = {
+  let out = []
+  for p in xs { let kv = match p { case [a, _] -> a }; out = out + [ kv ]; }
+  out
+}
+
+fn values(xs) = {
+  let out = []
+  for p in xs { let kv = match p { case [_, b] -> b }; out = out + [ kv ]; }
+  out
+}
