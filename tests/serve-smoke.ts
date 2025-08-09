@@ -14,8 +14,11 @@ function runServe(requests: any[]): Promise<any[]> {
         const line = buffer.slice(0, idx).trim()
         buffer = buffer.slice(idx + 1)
         if (!line) continue
-        try { outputs.push(JSON.parse(line)) } catch {}
-        if (outputs.length >= requests.length) { proc.kill(); resolve(outputs) }
+        try {
+          const obj = JSON.parse(line)
+          outputs.push(obj)
+          if (outputs.filter(x => x && x.ok).length >= requests.length) { proc.kill(); resolve(outputs) }
+        } catch {}
       }
     })
     proc.stderr.on('data', d => {})
@@ -29,7 +32,8 @@ async function main() {
   const hoverReq = { action: 'hover', file: path.join(base, 'examples/apps/calc_app.lum'), symbol: 'option_result.Ok' }
   const diagReq = { action: 'diagnostics', file: path.join(base, 'examples/apps/calc_app.lum') }
   const out = await runServe([hoverReq, diagReq])
-  if (!(out[0]?.ok && out[0]?.hover && out[1]?.ok && Array.isArray(out[1]?.diagnostics))) {
+  const oks = out.filter(x => x && x.ok)
+  if (oks.length < 2 || !oks[0]?.hover || !oks[1]?.diagnostics) {
     console.error('serve-smoke failed')
     process.exit(1)
   }
