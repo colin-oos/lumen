@@ -1,0 +1,13 @@
+module actors
+
+import "../libs/stdlib.lum"
+
+enum Msg = Sum([Int]) | Ping
+
+actor Summer(msg) raises io = match msg {
+  case Sum(xs) reply Int -> stdlib.reduce(xs, 0, fn(a: Int, x: Int): Int = a + x)
+  case Ping reply Int -> 0
+}
+
+let res = ask Summer, Sum([1,2,3,4])
+res
