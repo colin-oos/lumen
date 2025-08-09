@@ -12,6 +12,9 @@ What it emits (to stdout):
 - Schemas as TS interfaces
 - Stores + Queries:
   - For each `query`, emits an array type of the store schema or a `Pick<Schema, 'field' | ...>` when projection is used
+- Functions:
+  - For named functions, emits a signature alias `type nameFn = (p1, p2) => ret`
+  - Parameter types prefer explicit annotations; otherwise a simple inference pass marks params used in binary ops as `number`
 
 Example:
 ```
