@@ -9,6 +9,7 @@ The `stdlib` module provides minimal helpers across Text, List, Set, and Map.
 - List
   - `map(xs, f)`, `filter(xs, f)`, `reduce(xs, init, f)`
   - `lengthList(xs): Int`, `head(xs)`, `tail(xs)`
+  - `any(xs, f): Bool`, `all(xs, f): Bool`, `unique(xs)`, `union(a,b)`, `intersect(a,b)`
 - Set (modeled as list)
   - `hasSet(xs, x)`
 - Map (modeled as list of pairs)
