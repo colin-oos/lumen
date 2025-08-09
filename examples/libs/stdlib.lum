@@ -18,11 +18,6 @@ fn filter(xs, f): [Int] = {
   out
 }
 
-fn reduce(xs, init, f) = {
-  let acc = init
-  for i in xs { acc = f(acc, i); }
-  acc
-}
 
 // Set modeled as list
 fn hasSet(xs, x): Bool = {
@@ -49,4 +44,11 @@ fn setMap(xs, k, v) = {
     if kv.a == k then { out = out + [ [k, v] ]; replaced = true } else { out = out + [ pair ] }
   }
   if replaced then out else (out + [ [k, v] ])
+}
+
+fn reduce(xs, init, f) = {
+  // We compute accumulator via explicit loop and return last value
+  let acc = init
+  for i in xs { acc = f(acc, i); }
+  acc
 }

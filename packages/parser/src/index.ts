@@ -573,9 +573,18 @@ export function parse(source: string): Expr {
         })
         const returnType = m[3] || undefined
         let bodySrc = m[5]
+        // Accumulate multi-line bodies when braces are unbalanced
+        const openCount = (s: string) => (s.match(/\{/g) || []).length
+        const closeCount = (s: string) => (s.match(/\}/g) || []).length
+        let depth = openCount(bodySrc) - closeCount(bodySrc)
+        while (depth > 0 && idx + 1 < lines.length) {
+          idx++
+          bodySrc += '\n' + lines[idx]
+          depth += openCount(lines[idx]) - closeCount(lines[idx])
+        }
         if (/^match\b/.test(bodySrc) && (bodySrc.split('{').length - 1) > (bodySrc.split('}').length - 1)) {
-          let depth = (bodySrc.match(/\{/g) || []).length - (bodySrc.match(/\}/g) || []).length
-          while (depth > 0 && idx + 1 < lines.length) { idx++; bodySrc += '\n' + lines[idx]; depth += (lines[idx].match(/\{/g) || []).length - (lines[idx].match(/\}/g) || []).length }
+          let depth2 = (bodySrc.match(/\{/g) || []).length - (bodySrc.match(/\}/g) || []).length
+          while (depth2 > 0 && idx + 1 < lines.length) { idx++; bodySrc += '\n' + lines[idx]; depth2 += (lines[idx].match(/\{/g) || []).length - (lines[idx].match(/\}/g) || []).length }
         }
         const body = parseExprRD(bodySrc)
         const effects = new Set<string>() as any
