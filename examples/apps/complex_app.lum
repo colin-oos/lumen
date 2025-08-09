@@ -1,0 +1,48 @@
+module complex
+
+// Data model
+schema Event {
+  id: Int
+  ip: Text
+  at: Int
+}
+
+// Source with backend config (facade or real adapter)
+source events: Store<Event> with persist("sqlite:./examples/data/events.sqlite3:events")
+
+// Query comprehension sugar: recent events in last 60 units
+query recent(): Stream<Event> = from e in events.stream() where e.at > 0 select e
+
+// Actor that aggregates counts by ip
+actor Aggregator {
+  state total: Int = 0
+
+  on "inc" -> total = total + 1
+  on "get" reply Int -> total
+}
+
+// Worker service using http effect (mockable)
+fn fetchPing(url: Text): Text raises http = http.get(url)
+
+actor Service {
+  state agg: Int = spawn Aggregator
+
+  // Route on string commands
+  on "load" -> {
+    // simulate processing a batch
+    send agg "inc"
+    send agg "inc"
+  }
+
+  on "ping" -> {
+    let _ = fetchPing("https://example.com/ping")
+  }
+
+  on "count" reply Int -> ask agg "get"
+}
+
+let s = spawn Service
+send s "load"
+send s "ping"
+let c = ask s "count"
+io.print(c)
