@@ -23,9 +23,12 @@ function run(ast, options) {
     const effectStack = [];
     const stores = new Map();
     // Inject minimal stdlib builtins (deterministic, pure)
-    env.set('stdlib.length', (s) => typeof s === 'string' ? s.length : 0);
+    env.set('stdlib.length', (s) => typeof s === 'string' ? s.length : (Array.isArray(s) ? s.length : 0));
     env.set('stdlib.uppercase', (s) => typeof s === 'string' ? s.toUpperCase() : s);
     env.set('stdlib.lowercase', (s) => typeof s === 'string' ? s.toLowerCase() : s);
+    env.set('stdlib.startsWith', (s, prefix) => typeof s === 'string' && typeof prefix === 'string' ? s.startsWith(prefix) : false);
+    env.set('stdlib.endsWith', (s, suffix) => typeof s === 'string' && typeof suffix === 'string' ? s.endsWith(suffix) : false);
+    env.set('stdlib.contains', (s, sub) => typeof s === 'string' && typeof sub === 'string' ? s.includes(sub) : false);
     env.set('stdlib.map', (xs, f) => Array.isArray(xs) && typeof f === 'function' ? xs.map((x) => f(x)) : []);
     env.set('stdlib.filter', (xs, f) => Array.isArray(xs) && typeof f === 'function' ? xs.filter((x) => Boolean(f(x))) : []);
     env.set('stdlib.reduce', (xs, init, f) => Array.isArray(xs) && typeof f === 'function' ? xs.reduce((a, x) => f(a, x), init) : init);
@@ -56,6 +59,25 @@ function run(ast, options) {
             out.push([k, v]);
         return out;
     });
+    env.set('stdlib.any', (xs, f) => Array.isArray(xs) && typeof f === 'function' ? xs.some((x) => Boolean(f(x))) : false);
+    env.set('stdlib.all', (xs, f) => Array.isArray(xs) && typeof f === 'function' ? xs.every((x) => Boolean(f(x))) : false);
+    env.set('stdlib.unique', (xs) => Array.isArray(xs) ? xs.filter((v, i, a) => a.findIndex(z => JSON.stringify(z) === JSON.stringify(v)) === i) : []);
+    env.set('stdlib.union', (a, b) => {
+        const aa = Array.isArray(a) ? a : [];
+        const bb = Array.isArray(b) ? b : [];
+        const combined = aa.concat(bb);
+        return combined.filter((v, i, arr) => arr.findIndex(z => JSON.stringify(z) === JSON.stringify(v)) === i);
+    });
+    env.set('stdlib.intersect', (a, b) => {
+        const aa = Array.isArray(a) ? a : [];
+        const bb = Array.isArray(b) ? b : [];
+        return aa.filter(x => bb.findIndex(z => JSON.stringify(z) === JSON.stringify(x)) >= 0).filter((v, i, arr) => arr.findIndex(z => JSON.stringify(z) === JSON.stringify(v)) === i);
+    });
+    env.set('stdlib.keys', (xs) => Array.isArray(xs) ? xs.map(p => Array.isArray(p) ? p[0] : null).filter(x => x !== null) : []);
+    env.set('stdlib.values', (xs) => Array.isArray(xs) ? xs.map(p => Array.isArray(p) ? p[1] : null).filter(x => x !== null) : []);
+    env.set('stdlib.lengthList', (xs) => Array.isArray(xs) ? xs.length : 0);
+    env.set('stdlib.head', (xs) => Array.isArray(xs) && xs.length > 0 ? xs[0] : null);
+    env.set('stdlib.tail', (xs) => Array.isArray(xs) && xs.length > 0 ? xs.slice(1) : []);
     function wrapMessage(m) {
         if (m && typeof m === 'object' && 'value' in m)
             return m;
