@@ -3,6 +3,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.run = run;
 const sqlite_1 = require("./adapters/sqlite");
 const http_1 = require("./adapters/http");
+const LOOP_BREAK = Symbol.for('lumen.break');
+const LOOP_CONTINUE = Symbol.for('lumen.continue');
 function run(ast, options) {
     const trace = [];
     const env = new Map();
@@ -207,7 +209,6 @@ function run(ast, options) {
                     return go(p.right, v);
                 }
                 default:
-                    // Fallback compare
                     return { ok: equal(evalExpr(p), v), binds: new Map() };
             }
         }
@@ -562,28 +563,14 @@ function run(ast, options) {
                 return truthy(c) ? evalExpr(e.then) : evalExpr(e.else);
             }
             case 'While': {
-                const loopBreak = Symbol('break');
-                const loopCont = Symbol('continue');
-                function evalLoopBody() {
-                    try {
-                        return evalExpr(e.body);
-                    }
-                    catch (x) {
-                        if (x === loopBreak)
-                            return null;
-                        if (x === loopCont)
-                            return evalLoopBody();
-                        throw x;
-                    }
-                }
                 while (truthy(evalExpr(e.cond))) {
                     try {
-                        evalLoopBody();
+                        evalExpr(e.body);
                     }
                     catch (x) {
-                        if (x === loopBreak)
+                        if (x === LOOP_BREAK)
                             break;
-                        else if (x === loopCont)
+                        else if (x === LOOP_CONTINUE)
                             continue;
                         else
                             throw x;
@@ -592,8 +579,6 @@ function run(ast, options) {
                 return null;
             }
             case 'For': {
-                const loopBreak = Symbol('break');
-                const loopCont = Symbol('continue');
                 const it = evalExpr(e.iter);
                 const arr = Array.isArray(it) ? it : [];
                 for (const v of arr) {
@@ -602,9 +587,9 @@ function run(ast, options) {
                         evalExpr(e.body);
                     }
                     catch (x) {
-                        if (x === loopBreak)
+                        if (x === LOOP_BREAK)
                             break;
-                        else if (x === loopCont)
+                        else if (x === LOOP_CONTINUE)
                             continue;
                         else
                             throw x;
@@ -612,8 +597,8 @@ function run(ast, options) {
                 }
                 return null;
             }
-            case 'Break': throw Symbol('break');
-            case 'Continue': throw Symbol('continue');
+            case 'Break': throw LOOP_BREAK;
+            case 'Continue': throw LOOP_CONTINUE;
             case 'RecordLit': {
                 const obj = {};
                 for (const f of e.fields)
