@@ -169,11 +169,12 @@ function parseExprRD(src: string): Expr {
     if (lx.s.slice(lx['i'], lx['i'] + 5) === 'false') { lx['i'] += 5; return { kind: 'LitBool', sid: sid('lit'), value: false } }
     if (lx.peek() === '(') { lx.next(); const e = parseOr(); lx.eatWs(); if (lx.peek() === ')') lx.next(); return e }
     if (lx.peek() === '{') {
-      // Decide between RecordLit and Block by scanning ahead for ':' vs ';'
+      // Decide between RecordLit, MapLit and Block by scanning ahead for ':' vs '->' vs ';'
       let j = lx['i'] + 1
       let depth = 0
       let sawColon = false
       let sawSemicolon = false
+      let sawArrow = false
       while (j < lx.s.length) {
         const ch = lx.s[j]
         if (ch === '{') depth++
@@ -181,10 +182,11 @@ function parseExprRD(src: string): Expr {
         else if (depth === 0) {
           if (ch === ':') { sawColon = true; break }
           if (ch === ';') { sawSemicolon = true; break }
+          if (ch === '-' && lx.s[j+1] === '>') { sawArrow = true; break }
         }
         j++
       }
-      if (sawColon && !sawSemicolon) {
+      if ((sawColon && !sawSemicolon) && !sawArrow) {
         lx.next()
         const fields: Array<{ name: string, expr: Expr }> = []
         lx.eatWs()
@@ -200,6 +202,24 @@ function parseExprRD(src: string): Expr {
         }
         if (lx.peek() === '}') lx.next()
         return { kind: 'RecordLit', sid: sid('rec'), fields }
+      } else if (sawArrow && !sawSemicolon) {
+        // Map literal: { key -> value, ... }
+        lx.next()
+        const entries: Array<{ key: Expr, value: Expr }> = []
+        lx.eatWs()
+        if (lx.peek() !== '}') {
+          while (true) {
+            const key = parseOr(); lx.eatWs()
+            if (lx.peek() === '-' && lx.s[lx['i'] + 1] === '>') { lx.next(); lx.next() }
+            else { /* error-recovery */ }
+            lx.eatWs(); const value = parseOr()
+            entries.push({ key, value })
+            lx.eatWs(); if (lx.peek() === ',') { lx.next(); lx.eatWs(); continue }
+            break
+          }
+        }
+        if (lx.peek() === '}') lx.next()
+        return { kind: 'MapLit', sid: sid('map'), entries } as any
       } else {
         // Block: { expr; expr; ... }
         lx.next()
@@ -341,6 +361,8 @@ export function parse(source: string): Expr {
   const rawLines = pre.split(/\n+/)
   const lines = rawLines.map(s => s.trim()).filter(s => s.length > 0)
   const decls: Expr[] = []
+  const reserved = new Set(['actor','and','as','assert','break','case','continue','data','effect','else','false','fn','from','import','in','let','match','module','mut','not','on','or','query','raises','return','schema','select','source','spawn','spec','state','stream','true','unit','view','where','with'])
+  function isReservedName(name: string): boolean { return reserved.has(name) }
   for (let idx = 0; idx < lines.length; idx++) {
     const ln = lines[idx]
     if (ln.startsWith('module ')) {
@@ -358,6 +380,7 @@ export function parse(source: string): Expr {
       const m = ln.match(/^enum\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/)
       if (m) {
         const name = m[1]
+        if (isReservedName(name)) continue
         const rhs = m[2]
         const variants = rhs.split('|').map(s => s.trim()).filter(Boolean).map(v => {
           const mm = v.match(/^([A-Za-z_][A-Za-z0-9_]*)(?:\(([^)]*)\))?$/)
@@ -372,6 +395,7 @@ export function parse(source: string): Expr {
     // actor block form: actor Name { ... }
     if (/^actor\s+[A-Za-z_][A-Za-z0-9_]*\s*\{$/.test(ln)) {
       const name = ln.match(/^actor\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{$/)! [1]
+      if (isReservedName(name)) { idx++; while (idx < lines.length && lines[idx] !== '}') idx++; continue }
       const state: Array<{ name: string, type?: string, init: Expr }> = []
       const handlers: Array<{ pattern: Expr, replyType?: string, body: Expr, guard?: Expr }> = []
       idx++
@@ -401,12 +425,13 @@ export function parse(source: string): Expr {
     // mut decl
     if (ln.startsWith('mut ')) {
       const m = ln.match(/^mut\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/)
-      if (m) { decls.push({ kind: 'Let', sid: sid('let'), name: m[1], type: m[2] || undefined, expr: parseExprRD(m[3]), mutable: true, span: { start: 0, end: 0, line: idx + 1 } } as any); continue }
+      if (m) { if (isReservedName(m[1])) { continue } decls.push({ kind: 'Let', sid: sid('let'), name: m[1], type: m[2] || undefined, expr: parseExprRD(m[3]), mutable: true, span: { start: 0, end: 0, line: idx + 1 } } as any); continue }
     }
     if (ln.startsWith('let ')) {
       // let name[: Type]? = expr
       const m = ln.match(/^let\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*:\s*([A-Za-z_][A-Za-z0-9_]*))?\s*=\s*(.+)$/)
       if (m) {
+        if (isReservedName(m[1])) { continue }
         let rhs = m[3]
         if (/^match\b/.test(rhs) && (rhs.split('{').length - 1) > (rhs.split('}').length - 1)) {
           let depth = (rhs.match(/\{/g) || []).length - (rhs.match(/\}/g) || []).length
@@ -420,6 +445,7 @@ export function parse(source: string): Expr {
       // fn name(params[:Type, ...])[:Return]? [raises e1, e2] = expr
       const m = ln.match(/^fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*(?::\s*([A-Za-z_][A-Za-z0-9_]*))?\s*(?:raises\s+([^=]+))?\s*=\s*(.+)$/)
       if (m) {
+        if (isReservedName(m[1])) { continue }
         const params = m[2].trim() === '' ? [] : m[2].split(',').map(s => s.trim()).map(p => {
           const pm = p.match(/^([A-Za-z_][A-Za-z0-9_]*)(?:\s*:\s*([A-Za-z_][A-Za-z0-9_]*))?$/)
           return { name: pm?.[1] || p, type: pm?.[2] }
@@ -440,8 +466,9 @@ export function parse(source: string): Expr {
     }
     if (ln.startsWith('actor ')) {
       // actor Name[(param[:Type])]? [raises e1,e2] = expr
-      const m = ln.match(/^actor\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(([^:)]+)(?::\s*([A-Za-z_][A-Za-z0-9_]*))?\))?\s*(?:raises\s+([^=]+))?\s*=\s*(.+)$/)
+      const m = ln.match(/^actor\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(([^:)]+)(?::\s*([A-Za-z_][A-Za-z0-9_]*))?\))?\s*(?:raises\s+([^=]+))?\s*\=\s*(.+)$/)
       if (m) {
+        if (isReservedName(m[1])) { continue }
         const name = m[1]
         const param = m[2] ? { name: m[2], type: m[3] || undefined } : null
         const effects = new Set<string>() as any
@@ -454,7 +481,7 @@ export function parse(source: string): Expr {
     }
     if (ln.startsWith('spawn ')) {
       const m = ln.match(/^spawn\s+([A-Za-z_][A-Za-z0-9_.]*)$/)
-      if (m) { decls.push({ kind: 'Spawn', sid: sid('spawn'), actorName: m[1], span: { start: 0, end: 0, line: idx + 1 } } as any); continue }
+      if (m) { if (isReservedName(m[1])) { continue } decls.push({ kind: 'Spawn', sid: sid('spawn'), actorName: m[1], span: { start: 0, end: 0, line: idx + 1 } } as any); continue }
     }
     if (ln.startsWith('send ')) {
       let m = ln.match(/^send\s+([^,\s]+)\s*,\s*(.+)$/)
@@ -508,6 +535,7 @@ export function parse(source: string): Expr {
       const m = ln.match(/^schema\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{$/)
       if (m) {
         const name = m[1]
+        if (isReservedName(name)) { idx++; while (idx < lines.length && lines[idx] !== '}') idx++; continue }
         idx += 1
         const fields: Record<string, string> = {}
         for (; idx < lines.length; idx++) {
@@ -541,6 +569,7 @@ export function parse(source: string): Expr {
       const m = ln.match(/^source\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*Store<([A-Za-z_][A-Za-z0-9_]*)>\s*(?:with\s+(.+))?$/)
       if (m) {
         const name = m[1]
+        if (isReservedName(name)) { continue }
         const schema = m[2]
         let config: string | null = null
         const withExpr = (m[3] || '').trim()
@@ -555,7 +584,7 @@ export function parse(source: string): Expr {
     if (ln.startsWith('store ')) {
       // legacy store Name : Schema = "config"
       const m = ln.match(/^store\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:=\s*"([^"]*)")?$/)
-      if (m) { decls.push({ kind: 'StoreDecl', sid: sid('store'), name: m[1], schema: m[2], config: m[3] ?? null, span: { start: 0, end: 0, line: idx + 1 } } as any); continue }
+      if (m) { if (isReservedName(m[1])) { continue } decls.push({ kind: 'StoreDecl', sid: sid('store'), name: m[1], schema: m[2], config: m[3] ?? null, span: { start: 0, end: 0, line: idx + 1 } } as any); continue }
     }
     if (ln.startsWith('query ')) {
       // Support both: single-line form and comprehension block form
@@ -563,6 +592,7 @@ export function parse(source: string): Expr {
       let m = ln.match(/^query\s+([A-Za-z_][A-Za-z0-9_]*)\s+from\s+([A-Za-z_][A-Za-z0-9_]*)\s+where\s+(.+)\s+select\s+(.+)$/)
       if (!m) m = ln.match(/^query\s+([A-Za-z_][A-Za-z0-9_]*)\s+from\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+select\s+(.+))?$/)
       if (m) {
+        if (isReservedName(m[1])) { continue }
         const name = m[1]
         const source = m[2]
         const where = m[3] && m[4] ? m[3] : (m[3] && !m[4] ? undefined : undefined)
@@ -575,6 +605,7 @@ export function parse(source: string): Expr {
       // 2) query Name() = from x in store.stream() [where expr] select expr
       const mc = ln.match(/^query\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(\)\s*=\s*from\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+(.+?)\s*(?:where\s+(.+?))?\s*select\s+(.+)$/)
       if (mc) {
+        if (isReservedName(mc[1])) { continue }
         const name = mc[1]
         const alias = mc[2]
         const srcExpr = mc[3]

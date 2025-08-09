@@ -61,6 +61,12 @@ function formatOne(node: Expr): string {
     }
     case 'TupleLit':
       return `[${node.elements.map(formatOne).join(', ')}]`
+    case 'SetLit':
+      return `{ ${node.elements.map(formatOne).join(', ')} }`
+    case 'MapLit': {
+      const pairs = (node as any).entries.map((en: any) => `${formatOne(en.key)} -> ${formatOne(en.value)}`).join(', ')
+      return `{ ${pairs} }`
+    }
     case 'Var':
       return node.name
     case 'Call':

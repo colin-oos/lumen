@@ -19,6 +19,8 @@ export type Expr =
   | { kind: 'Assign', sid: Sid, name: string, expr: Expr, span?: Span }
   | { kind: 'RecordLit', sid: Sid, fields: Array<{ name: string, expr: Expr }>, span?: Span }
   | { kind: 'TupleLit', sid: Sid, elements: Expr[], span?: Span }
+  | { kind: 'SetLit', sid: Sid, elements: Expr[], span?: Span }
+  | { kind: 'MapLit', sid: Sid, entries: Array<{ key: Expr, value: Expr }>, span?: Span }
   | { kind: 'PatternOr', sid: Sid, left: Expr, right: Expr, span?: Span }
   | { kind: 'Match', sid: Sid, scrutinee: Expr, cases: Array<{ pattern: Expr, guard?: Expr, body: Expr }>, span?: Span }
   | { kind: 'SchemaDecl', sid: Sid, name: string, fields: Record<string,string>, span?: Span }
@@ -87,6 +89,8 @@ function nodeSignature(e: Expr): string {
     case 'EffectCall': return `EffectCall:${e.effect}:${e.op}(${e.args.map(a => (a as any).sid ?? '?').join(',')})`
     case 'RecordLit': return `RecordLit:{${e.fields.map(f => `${f.name}:${(f.expr as any).sid ?? '?'}`).join(',')}}`
     case 'TupleLit': return `TupleLit:(${e.elements.map(a => (a as any).sid ?? '?').join(',')})`
+    case 'SetLit': return `SetLit:[${e.elements.map(a => (a as any).sid ?? '?').join(',')}]`
+    case 'MapLit': return `MapLit:{${e.entries.map(en => `${(en.key as any).sid ?? '?'}->${(en.value as any).sid ?? '?'}`).join(',')}}`
     case 'PatternOr': return `PatternOr:${(e.left as any).sid ?? '?'}|${(e.right as any).sid ?? '?'}`
     case 'Match': return `Match:${(e.scrutinee as any).sid ?? '?'}:${e.cases.length}`
     case 'SchemaDecl': return `SchemaDecl:${e.name}:${Object.entries(e.fields).map(([k,v])=>`${k}:${v}`).join(',')}`
@@ -124,6 +128,8 @@ export function assignStableSids(e: Expr): void {
     case 'EffectCall': for (const a of e.args) assignStableSids(a); break
     case 'RecordLit': for (const f of e.fields) assignStableSids(f.expr); break
     case 'TupleLit': for (const a of e.elements) assignStableSids(a); break
+    case 'SetLit': for (const a of e.elements) assignStableSids(a); break
+    case 'MapLit': for (const en of e.entries) { assignStableSids(en.key); assignStableSids(en.value) } break
     case 'PatternOr': assignStableSids(e.left); assignStableSids(e.right); break
     case 'Match': assignStableSids(e.scrutinee); for (const c of e.cases as any[]) { if (c.pattern) assignStableSids(c.pattern); if (c.guard) assignStableSids(c.guard); if (c.body) assignStableSids(c.body) } break
     case 'SchemaDecl': break

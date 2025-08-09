@@ -108,6 +108,19 @@ export type Expr = {
     elements: Expr[];
     span?: Span;
 } | {
+    kind: 'SetLit';
+    sid: Sid;
+    elements: Expr[];
+    span?: Span;
+} | {
+    kind: 'MapLit';
+    sid: Sid;
+    entries: Array<{
+        key: Expr;
+        value: Expr;
+    }>;
+    span?: Span;
+} | {
     kind: 'PatternOr';
     sid: Sid;
     left: Expr;
