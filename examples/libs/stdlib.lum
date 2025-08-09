@@ -91,3 +91,8 @@ fn unique(xs) = stdlib.reduce(xs, [], fn(a, x) = if stdlib.hasSet(a, x) then a e
 fn union(a, b) = stdlib.unique(a + b)
 
 fn intersect(a, b) = stdlib.reduce(a, [], fn(acc, x) = if stdlib.hasSet(b, x) then (acc + [ x ]) else acc)
+
+fn padLeft(s, n: Int, ch): Text = s
+fn padRight(s, n: Int, ch): Text = s
+fn concat(xs, ys) = xs + ys
+fn flatten(xss) = stdlib.reduce(xss, [], fn(a, x) = a + x)
