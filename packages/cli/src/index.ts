@@ -202,7 +202,9 @@ async function main() {
     const ast = loadWithImports(entry)
     assignStableSids(ast)
     const res = run(ast)
-    const hash = hashTrace(res.trace)
+    const seedIdx = rest.indexOf('--seed')
+    const seed = seedIdx >= 0 ? String(rest[seedIdx + 1] || '') : ''
+    const hash = hashTrace(res.trace, seed)
     const expectFlagIdx = rest.indexOf('--expect')
     let expectHash: string | null = null
     if (expectFlagIdx >= 0) expectHash = rest[expectFlagIdx + 1] || null
@@ -496,8 +498,10 @@ function hoverInfo(ast: any, symbol: string): any {
   return result
 }
 
-function hashTrace(trace: Array<{ sid: string, note: string }>): string {
+function hashTrace(trace: Array<{ sid: string, note: string }>, seed: string = ''): string {
   let h = 2166136261 >>> 0
+  // incorporate seed
+  for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0 }
   for (const ev of trace) {
     const s = `${ev.sid}:${ev.note}`
     for (let i = 0; i < s.length; i++) {

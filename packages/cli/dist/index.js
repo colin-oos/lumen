@@ -251,7 +251,9 @@ async function main() {
         const ast = loadWithImports(entry);
         (0, core_ir_1.assignStableSids)(ast);
         const res = (0, runner_1.run)(ast);
-        const hash = hashTrace(res.trace);
+        const seedIdx = rest.indexOf('--seed');
+        const seed = seedIdx >= 0 ? String(rest[seedIdx + 1] || '') : '';
+        const hash = hashTrace(res.trace, seed);
         const expectFlagIdx = rest.indexOf('--expect');
         let expectHash = null;
         if (expectFlagIdx >= 0)
@@ -596,8 +598,13 @@ function hoverInfo(ast, symbol) {
     }
     return result;
 }
-function hashTrace(trace) {
+function hashTrace(trace, seed = '') {
     let h = 2166136261 >>> 0;
+    // incorporate seed
+    for (let i = 0; i < seed.length; i++) {
+        h ^= seed.charCodeAt(i);
+        h = Math.imul(h, 16777619) >>> 0;
+    }
     for (const ev of trace) {
         const s = `${ev.sid}:${ev.note}`;
         for (let i = 0; i < s.length; i++) {
