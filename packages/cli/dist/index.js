@@ -35,8 +35,9 @@ function usage() {
     run <file> [--deny e1,e2]      Parse (with imports) and run (runner)
     check <path> [--json] [--policy <file>] [--strict-warn]  Round-trip + effect check for file or directory
     init <dir>             Scaffold a new LUMEN project
-    serve                  Start simple LSP-like server on stdin/stdout (newline-delimited JSON)
+    serve                  Start simple LSP-like server on stdin/stdout (newline-delited JSON)
     test <path>            Run spec blocks in file or directory
+    defs <file> <symbol>   Get definition location
 `);
 }
 async function main() {
@@ -147,14 +148,13 @@ async function main() {
             console.error('usage: lumen defs <file> <symbol>');
             process.exit(1);
         }
-        const ast = loadWithImports(file);
-        const def = getDefinition(ast, symbol);
+        const def = getDefinitionFromProject(file, symbol);
         console.log(JSON.stringify(def, null, 2));
         return;
     }
     if (cmd === 'serve') {
         // Simple newline-delimited JSON protocol
-        // Request: { action: 'hover'|'diagnostics', file?: string, source?: string, symbol?: string }
+        // Request: { action: 'hover'|'diagnostics'|'symbols'|'definitions', file?: string, source?: string, symbol?: string }
         // Response: JSON per line
         let buffer = '';
         process.stdin.setEncoding('utf8');
@@ -173,15 +173,14 @@ async function main() {
                         // If file provided, use merged AST + checks; else fallback to LSP single-file diags
                         if (req.file) {
                             const file = path_1.default.resolve(req.file);
-                            const ast = loadWithImports(file);
-                            const policyPath = findPolicyFile(file);
                             const files = Array.from(new Set([file, ...collectImportsTransitive(file)])).map(p => ({ path: p, ast: (0, parser_1.parse)(fs_1.default.readFileSync(p, 'utf8')) }));
                             const effErrors = checkEffectsProject(files);
                             const typeReport = checkTypesProject(files);
+                            const policyPath = findPolicyFile(file);
                             const policy = policyPath && fs_1.default.existsSync(policyPath) ? JSON.parse(fs_1.default.readFileSync(policyPath, 'utf8')) : null;
                             const policyReport = policy ? checkPolicyDetailed(files, policy) : { errors: [], warnings: [] };
                             const diagnostics = {
-                                types: { errors: typeReport.errors },
+                                types: { errors: typeReport.errors, diags: typeReport.diags },
                                 effects: { errors: effErrors },
                                 policy: { errors: policyReport.errors, warnings: policyReport.warnings },
                                 counts: { errors: typeReport.errors.length + effErrors.length + policyReport.errors.length, warnings: policyReport.warnings.length }
@@ -229,17 +228,14 @@ async function main() {
                         }
                         process.stdout.write(JSON.stringify({ ok: true, symbols }) + '\n');
                     }
+                    else if (req.action === 'definitions' || req.action === 'definition' || req.action === 'defs') {
+                        const file = req.file ? path_1.default.resolve(req.file) : null;
+                        const sym = String(req.symbol || '');
+                        const def = file ? getDefinitionFromProject(file, sym) : {};
+                        process.stdout.write(JSON.stringify({ ok: true, definition: def }) + '\n');
+                    }
                     else {
-                        if (req.action === 'definitions' || req.action === 'definition' || req.action === 'defs') {
-                            const file = req.file ? path_1.default.resolve(req.file) : null;
-                            const ast = file ? loadWithImports(file) : (0, parser_1.parse)(src);
-                            const sym = String(req.symbol || '');
-                            const def = getDefinition(ast, sym);
-                            process.stdout.write(JSON.stringify({ ok: true, definition: def }) + '\n');
-                        }
-                        else {
-                            process.stdout.write(JSON.stringify({ ok: false, error: 'unknown action' }) + '\n');
-                        }
+                        process.stdout.write(JSON.stringify({ ok: false, error: 'unknown action' }) + '\n');
                     }
                 }
                 catch (e) {
@@ -347,7 +343,7 @@ async function main() {
         const policyReport = policy ? checkPolicyDetailed(parsed.map(p => ({ path: p.path, ast: p.ast })), policy) : { errors: [], warnings: [] };
         if (json) {
             const allErrors = [...effErrors, ...guardErrors, ...policyReport.errors];
-            const payload = { ok: ok && allErrors.length === 0 && (!strictWarn || policyReport.warnings.length === 0) && typeReport.errors.length === 0, files: files, errors: allErrors, policy: policyReport, types: typeReport };
+            const payload = { ok: ok && allErrors.length === 0 && (!strictWarn || policyReport.warnings.length === 0) && typeReport.errors.length === 0, files: files, errors: allErrors, policy: policyReport, types: { errors: typeReport.errors, diags: typeReport.diags } };
             console.log(JSON.stringify(payload, null, 2));
             if (!payload.ok)
                 process.exit(2);
@@ -1010,32 +1006,39 @@ function getModuleName(ast) {
             return d.name;
     return null;
 }
-function getDefinition(ast, symbol) {
-    const lastSeg = symbol.includes('.') ? symbol.split('.').pop() : symbol;
-    let currentModule = null;
+function getDefinitionFromProject(entryFile, symbol) {
+    const base = path_1.default.resolve(entryFile);
+    const files = Array.from(new Set([base, ...collectImportsTransitive(base)]));
     const defs = [];
-    if (ast.kind === 'Program') {
+    for (const f of files) {
+        const src = fs_1.default.readFileSync(f, 'utf8');
+        const ast = (0, parser_1.parse)(src);
+        if (ast.kind !== 'Program')
+            continue;
+        let mod = null;
         for (const d of ast.decls) {
             if (d.kind === 'ModuleDecl') {
-                currentModule = d.name;
+                mod = d.name;
                 continue;
             }
+            const make = (kind, name) => defs.push({ kind, name: mod ? `${mod}.${name}` : name, file: f, line: d.span?.line });
             if (d.kind === 'EnumDecl')
-                defs.push({ kind: 'enum', name: d.name, module: currentModule || undefined, line: d.span?.line });
+                make('enum', d.name);
             if (d.kind === 'Fn' && d.name)
-                defs.push({ kind: 'function', name: currentModule ? `${currentModule}.${d.name}` : d.name, module: currentModule || undefined, line: d.span?.line });
+                make('function', d.name);
             if (d.kind === 'StoreDecl')
-                defs.push({ kind: 'store', name: currentModule ? `${currentModule}.${d.name}` : d.name, module: currentModule || undefined, line: d.span?.line });
+                make('store', d.name);
             if (d.kind === 'QueryDecl')
-                defs.push({ kind: 'query', name: currentModule ? `${currentModule}.${d.name}` : d.name, module: currentModule || undefined, line: d.span?.line });
+                make('query', d.name);
             if (d.kind === 'ActorDecl' || d.kind === 'ActorDeclNew')
-                defs.push({ kind: 'actor', name: currentModule ? `${currentModule}.${d.name}` : d.name, module: currentModule || undefined, line: d.span?.line });
+                make('actor', d.name);
         }
     }
-    const match = defs.find(d => d.name === symbol || d.name === lastSeg || (d.name.endsWith('.' + lastSeg)));
+    const lastSeg = symbol.includes('.') ? symbol.split('.').pop() : symbol;
+    const match = defs.find(d => d.name === symbol || d.name.endsWith('.' + lastSeg));
     if (!match)
         return {};
-    return { kind: match.kind, name: match.name, line: match.line };
+    return { kind: match.kind, name: match.name, file: match.file, line: match.line };
 }
 function prefixWithModule(files, name) {
     const out = [];
@@ -1060,9 +1063,8 @@ function checkTypesProject(files) {
         return 'Unknown';
     }
     const errors = [];
-    // simple env per file; fn table for arity checking
+    const diags = [];
     const fnSigs = new Map();
-    // ADT constructor table: CtorName -> { enumName, params: Type[] }
     const adtCtors = new Map();
     const ctorToEnum = new Map();
     const enumToVariants = new Map();
@@ -1095,7 +1097,6 @@ function checkTypesProject(files) {
             return 'Unit';
         return 'Unknown';
     }
-    // First pass: collect function signatures
     for (const f of files) {
         if (f.ast.kind !== 'Program')
             continue;
@@ -1120,28 +1121,29 @@ function checkTypesProject(files) {
                 stores.set(d.name, { schema: d.schema, path: f.path });
         }
     }
-    function checkExpr(e, env, file) {
+    function push(file, line, message) {
+        errors.push(`${file}: ${message}`);
+        diags.push({ file, line, message });
+    }
+    function checkExpr(e, env, file, line) {
         switch (e.kind) {
             case 'LitNum':
             case 'LitFloat':
             case 'LitText':
             case 'LitBool':
                 return typeOfLiteral(e);
-            case 'Var': {
-                const ent = env.get(e.name);
-                return ent ? ent.type : 'Unknown';
-            }
+            case 'Var':
+                return env.get(e.name) ?? 'Unknown';
             case 'Ctor': {
                 const meta = ctorToEnum.get(e.name);
-                const argTypes = e.args.map(a => checkExpr(a, env, file));
+                const argTypes = e.args.map(a => checkExpr(a, env, file, line));
                 if (meta) {
                     if (meta.params.length !== argTypes.length)
-                        errors.push(`${file}: constructor ${e.name} arity ${argTypes.length} but expected ${meta.params.length}`);
+                        push(file, line, `constructor ${e.name} arity ${argTypes.length} but expected ${meta.params.length}`);
                     else {
                         for (let i = 0; i < meta.params.length; i++) {
-                            if (meta.params[i] !== 'Unknown' && argTypes[i] !== 'Unknown' && meta.params[i] !== argTypes[i]) {
-                                errors.push(`${file}: constructor ${e.name} arg ${i + 1} type ${argTypes[i]} but expected ${meta.params[i]}`);
-                            }
+                            if (meta.params[i] !== 'Unknown' && argTypes[i] !== 'Unknown' && meta.params[i] !== argTypes[i])
+                                push(file, line, `constructor ${e.name} arg ${i + 1} type ${argTypes[i]} but expected ${meta.params[i]}`);
                         }
                     }
                     return `ADT:${meta.enumName}`;
@@ -1150,32 +1152,41 @@ function checkTypesProject(files) {
             }
             case 'RecordLit': {
                 for (const f of e.fields)
-                    checkExpr(f.expr, env, file);
+                    checkExpr(f.expr, env, file, line);
                 return 'Unknown';
             }
             case 'TupleLit': {
                 for (const el of e.elements)
-                    checkExpr(el, env, file);
+                    checkExpr(el, env, file, line);
+                return 'Unknown';
+            }
+            case 'SetLit': {
+                for (const el of e.elements)
+                    checkExpr(el, env, file, line);
+                return 'Unknown';
+            }
+            case 'MapLit': {
+                for (const en of e.entries) {
+                    checkExpr(en.key, env, file, line);
+                    checkExpr(en.value, env, file, line);
+                }
                 return 'Unknown';
             }
             case 'Match': {
-                const _t = checkExpr(e.scrutinee, env, file);
+                const _t = checkExpr(e.scrutinee, env, file, line);
                 let branchT = 'Unknown';
-                // collect constructors for exhaustiveness and infer result type
                 const ctors = new Set();
                 let enumNameForCases = null;
                 let onlyCtors = true;
                 let allBranchesBaseType = null;
                 for (const c of e.cases) {
                     if (c.guard)
-                        checkExpr(c.guard, env, file);
-                    const bt = checkExpr(c.body, env, file);
-                    // infer base type consensus
+                        checkExpr(c.guard, env, file, line);
+                    const bt = checkExpr(c.body, env, file, line);
                     if (bt === 'Int' || bt === 'Float' || bt === 'Text' || bt === 'Bool' || bt === 'Unit') {
                         allBranchesBaseType = allBranchesBaseType === null ? bt : (allBranchesBaseType === bt ? bt : 'Unknown');
                     }
                     else if (typeof bt === 'string' && bt.startsWith('ADT:')) {
-                        // track ADT result type
                         const en = bt.slice(4);
                         enumNameForCases = enumNameForCases ?? en;
                         if (enumNameForCases !== en)
@@ -1199,7 +1210,6 @@ function checkTypesProject(files) {
                         onlyCtors = false;
                     }
                     else if (c.pattern?.kind === 'PatternOr') {
-                        // treat as covering multiple ctors only if both sides are ctors from same enum
                         const left = c.pattern.left;
                         const right = c.pattern.right;
                         if (left?.kind === 'Ctor' && right?.kind === 'Ctor') {
@@ -1224,7 +1234,7 @@ function checkTypesProject(files) {
                     const variants = enumToVariants.get(enumNameForCases) || [];
                     const missing = variants.map(v => v.name).filter(vn => !ctors.has(vn));
                     if (missing.length > 0)
-                        errors.push(`${file}: match not exhaustive for ${enumNameForCases}; missing: ${missing.join(', ')}`);
+                        push(file, line, `match not exhaustive for ${enumNameForCases}; missing: ${missing.join(', ')}`);
                     branchT = `ADT:${enumNameForCases}`;
                 }
                 else if (allBranchesBaseType && allBranchesBaseType !== 'Unknown') {
@@ -1233,60 +1243,50 @@ function checkTypesProject(files) {
                 return branchT;
             }
             case 'Let': {
-                const t = checkExpr(e.expr, env, file);
+                const t = checkExpr(e.expr, env, file, e.span?.line);
                 const declT = parseTypeName(e.type);
-                if (e.type && declT !== 'Unknown' && t !== 'Unknown' && declT !== t) {
-                    errors.push(`${file}: type mismatch in let ${e.name}: declared ${declT} but got ${t}`);
-                }
-                env.set(e.name, { type: declT !== 'Unknown' ? declT : t, mutable: Boolean(e.mutable) });
-                return env.get(e.name)?.type ?? 'Unknown';
-            }
-            case 'Assign': {
-                const ent = env.get(e.name);
-                if (!ent || !ent.mutable)
-                    errors.push(`${file}: assignment to immutable or undeclared name ${e.name}`);
-                return checkExpr(e.expr, env, file);
+                if (e.type && declT !== 'Unknown' && t !== 'Unknown' && declT !== t)
+                    push(file, e.span?.line, `type mismatch in let ${e.name}: declared ${declT} but got ${t}`);
+                env.set(e.name, declT !== 'Unknown' ? declT : t);
+                return env.get(e.name) ?? 'Unknown';
             }
             case 'Unary': {
-                const t = checkExpr(e.expr, env, file);
+                const t = checkExpr(e.expr, env, file, line);
                 if (e.op === 'not') {
                     if (t !== 'Bool' && t !== 'Unknown')
-                        errors.push(`${file}: unary not expects Bool, got ${t}`);
+                        push(file, line, `unary not expects Bool, got ${t}`);
                     return 'Bool';
                 }
                 if (e.op === 'neg') {
                     if ((t !== 'Int' && t !== 'Float') && t !== 'Unknown')
-                        errors.push(`${file}: unary - expects numeric, got ${t}`);
+                        push(file, line, `unary - expects numeric, got ${t}`);
                     return t;
                 }
                 return 'Unknown';
             }
             case 'Binary': {
-                const lt = checkExpr(e.left, env, file);
-                const rt = checkExpr(e.right, env, file);
+                const lt = checkExpr(e.left, env, file, line);
+                const rt = checkExpr(e.right, env, file, line);
                 const numericOps = ['+', '-', '*', '/', '%'];
                 const cmpOps = ['==', '!=', '<', '<=', '>', '>='];
                 const boolOps = ['and', 'or'];
                 if (numericOps.includes(e.op)) {
                     if ((lt !== 'Int' && lt !== 'Float') || (rt !== 'Int' && rt !== 'Float')) {
                         if (lt !== 'Unknown' && rt !== 'Unknown')
-                            errors.push(`${file}: binary ${e.op} expects numeric, got ${lt} and ${rt}`);
+                            push(file, line, `binary ${e.op} expects numeric, got ${lt} and ${rt}`);
                     }
                     return (lt === 'Float' || rt === 'Float') ? 'Float' : 'Int';
                 }
                 if (cmpOps.includes(e.op)) {
-                    // allow comparing same-typed numeric or text/bool; result bool
                     if (lt !== rt && lt !== 'Unknown' && rt !== 'Unknown') {
-                        // permit Int vs Float comparisons
-                        if (!((lt === 'Int' && rt === 'Float') || (lt === 'Float' && rt === 'Int'))) {
-                            errors.push(`${file}: comparison ${e.op} between ${lt} and ${rt}`);
-                        }
+                        if (!((lt === 'Int' && rt === 'Float') || (lt === 'Float' && rt === 'Int')))
+                            push(file, line, `comparison ${e.op} between ${lt} and ${rt}`);
                     }
                     return 'Bool';
                 }
                 if (boolOps.includes(e.op)) {
                     if ((lt !== 'Bool' || rt !== 'Bool') && (lt !== 'Unknown' && rt !== 'Unknown'))
-                        errors.push(`${file}: boolean ${e.op} expects Bool, got ${lt} and ${rt}`);
+                        push(file, line, `boolean ${e.op} expects Bool, got ${lt} and ${rt}`);
                     return 'Bool';
                 }
                 return 'Unknown';
@@ -1294,22 +1294,21 @@ function checkTypesProject(files) {
             case 'EffectCall': {
                 const rt = effectReturnType(e.effect, e.op);
                 for (const a of e.args)
-                    checkExpr(a, env, file);
+                    checkExpr(a, env, file, line);
                 return rt;
             }
             case 'Call': {
                 const name = e.callee.kind === 'Var' ? e.callee.name : '';
-                const candidates = name.includes('.') ? [name] : [name, ...prefixWithModule(files, name)];
+                const candidates = name.includes('.') ? [name] : [name, ...files.map(f => getModuleName(f.ast)).filter(Boolean).map(m => `${m}.${name}`)];
                 const sig = candidates.map(n => fnSigs.get(n)).find(Boolean);
-                const argTypes = e.args.map((a) => checkExpr(a, env, file));
+                const argTypes = e.args.map((a) => checkExpr(a, env, file, line));
                 if (sig) {
                     if (sig.params.length !== argTypes.length)
-                        errors.push(`${file}: call ${name} arity ${argTypes.length} but expected ${sig.params.length}`);
+                        push(file, line, `call ${name} arity ${argTypes.length} but expected ${sig.params.length}`);
                     else {
                         for (let i = 0; i < sig.params.length; i++) {
-                            if (sig.params[i] !== 'Unknown' && argTypes[i] !== 'Unknown' && sig.params[i] !== argTypes[i]) {
-                                errors.push(`${file}: call ${name} arg ${i + 1} type ${argTypes[i]} but expected ${sig.params[i]}`);
-                            }
+                            if (sig.params[i] !== 'Unknown' && argTypes[i] !== 'Unknown' && sig.params[i] !== argTypes[i])
+                                push(file, line, `call ${name} arg ${i + 1} type ${argTypes[i]} but expected ${sig.params[i]}`);
                         }
                     }
                     return sig.ret;
@@ -1320,15 +1319,15 @@ function checkTypesProject(files) {
                 const local = new Map(env);
                 let last = 'Unknown';
                 for (const s of e.stmts)
-                    last = checkExpr(s, local, file);
+                    last = checkExpr(s, local, file, line);
                 return last;
             }
             case 'If': {
-                const ct = checkExpr(e.cond, env, file);
+                const ct = checkExpr(e.cond, env, file, line);
                 if (ct !== 'Bool' && ct !== 'Unknown')
-                    errors.push(`${file}: if condition must be Bool, got ${ct}`);
-                const tt = checkExpr(e.then, env, file);
-                const et = checkExpr(e.else, env, file);
+                    push(file, line, `if condition must be Bool, got ${ct}`);
+                const tt = checkExpr(e.then, env, file, line);
+                const et = checkExpr(e.else, env, file, line);
                 if (tt === et)
                     return tt;
                 if ((tt === 'Int' && et === 'Float') || (tt === 'Float' && et === 'Int'))
@@ -1338,15 +1337,12 @@ function checkTypesProject(files) {
             case 'Fn': {
                 const local = new Map(env);
                 for (const p of e.params)
-                    local.set(p.name, { type: parseTypeName(p.type), mutable: false });
-                const bodyT = checkExpr(e.body, local, file);
+                    local.set(p.name, parseTypeName(p.type));
+                const bodyT = checkExpr(e.body, local, file, e.span?.line);
                 const retT = parseTypeName(e.returnType);
                 if (e.returnType) {
-                    if (retT !== 'Unknown' && bodyT !== 'Unknown' && retT !== bodyT) {
-                        // if return is ADT:Enum and body is ADT:Enum, allow if same
-                        errors.push(`${file}: function ${e.name ?? '<anon>'} returns ${bodyT} but declared ${retT}`);
-                    }
-                    // additionally, if declared ADT, ensure body forms are constructors of that ADT (best-effort)
+                    if (retT !== 'Unknown' && bodyT !== 'Unknown' && retT !== bodyT)
+                        push(file, e.span?.line, `function ${e.name ?? '<anon>'} returns ${bodyT} but declared ${retT}`);
                     if (typeof retT === 'string' && retT.startsWith('ADT:')) {
                         const en = retT.slice(4);
                         const violates = { ok: false };
@@ -1371,7 +1367,7 @@ function checkTypesProject(files) {
                         };
                         verify(e.body);
                         if (violates.ok)
-                            errors.push(`${file}: function ${e.name ?? '<anon>'} declared ${retT} but returns constructor from different enum`);
+                            push(file, e.span?.line, `function ${e.name ?? '<anon>'} declared ${retT} but returns constructor from different enum`);
                     }
                 }
                 return 'Unknown';
@@ -1388,32 +1384,29 @@ function checkTypesProject(files) {
             if (d.kind === 'QueryDecl') {
                 const store = stores.get(d.source);
                 if (!store)
-                    errors.push(`${f.path}: query ${d.name} references unknown store ${d.source}`);
+                    push(f.path, d.span?.line, `query ${d.name} references unknown store ${d.source}`);
                 const schema = store ? schemas.get(store.schema) : null;
                 if (!schema) {
                     if (store)
-                        errors.push(`${f.path}: query ${d.name} references store ${d.source} with unknown schema ${store.schema}`);
+                        push(f.path, d.span?.line, `query ${d.name} references store ${d.source} with unknown schema ${store.schema}`);
                 }
                 else {
-                    // validate projection fields
                     const proj = (d.projection || []);
                     for (const p of proj)
                         if (!(p in schema))
-                            errors.push(`${f.path}: query ${d.name} selects unknown field ${p}`);
-                    // basic predicate variable usage: allow only field names and literals/operators
+                            push(f.path, d.span?.line, `query ${d.name} selects unknown field ${p}`);
                     if (d.predicate) {
                         const envPred = new Map();
                         for (const [k, v] of Object.entries(schema))
-                            envPred.set(k, { type: parseTypeName(v), mutable: false });
-                        const _t = checkExpr(d.predicate, envPred, f.path);
+                            envPred.set(k, parseTypeName(v));
+                        const _t = checkExpr(d.predicate, envPred, f.path, d.span?.line);
                     }
                 }
             }
             else {
-                checkExpr(d, env, f.path);
+                checkExpr(d, env, f.path, d.span?.line);
             }
         }
-        // Exhaustiveness for handler-style actors when patterns are constructors of same enum
         for (const d of f.ast.decls) {
             if (d.kind === 'ActorDeclNew') {
                 const ctors = new Set();
@@ -1432,7 +1425,6 @@ function checkTypesProject(files) {
                             onlyCtors = false;
                     }
                     else if (h.pattern?.kind === 'Var' && (h.pattern.name === '_' || h.pattern.name === '*')) {
-                        // wildcard -> treat as exhaustive
                         onlyCtors = false;
                         enumName = null;
                         break;
@@ -1460,25 +1452,23 @@ function checkTypesProject(files) {
                     const variants = enumToVariants.get(enumName) || [];
                     const missing = variants.map(v => v.name).filter(vn => !ctors.has(vn));
                     if (missing.length > 0)
-                        errors.push(`${f.path}: actor ${d.name} handlers not exhaustive for ${enumName}; missing: ${missing.join(', ')}`);
+                        push(files.find(ff => ff.ast === d)?.path || '', d.span?.line, `actor ${d.name} handlers not exhaustive for ${enumName}; missing: ${missing.join(', ')}`);
                 }
             }
         }
-        // Additionally, validate that router handlers' reply annotations (if any) are consistent with body types (basic)
         for (const d of f.ast.decls) {
             if (d.kind === 'ActorDeclNew') {
                 for (const h of d.handlers) {
                     if (h.replyType) {
                         const envLocal = new Map();
-                        const bt = checkExpr(h.body, envLocal, f.path);
+                        const bt = checkExpr(h.body, envLocal, f.path, d.span?.line);
                         const rt = parseTypeName(h.replyType);
-                        if (rt !== 'Unknown' && bt !== 'Unknown' && rt !== bt) {
-                            errors.push(`${f.path}: actor ${d.name} handler reply type ${h.replyType} mismatches body type ${bt}`);
-                        }
+                        if (rt !== 'Unknown' && bt !== 'Unknown' && rt !== bt)
+                            push(f.path, d.span?.line, `actor ${d.name} handler reply type ${h.replyType} mismatches body type ${bt}`);
                     }
                 }
             }
         }
     }
-    return { errors };
+    return { errors, diags };
 }
