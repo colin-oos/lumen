@@ -220,11 +220,12 @@ function parseExprRD(src) {
             return e;
         }
         if (lx.peek() === '{') {
-            // Decide between RecordLit and Block by scanning ahead for ':' vs ';'
+            // Decide between RecordLit, MapLit and Block by scanning ahead for ':' vs '->' vs ';'
             let j = lx['i'] + 1;
             let depth = 0;
             let sawColon = false;
             let sawSemicolon = false;
+            let sawArrow = false;
             while (j < lx.s.length) {
                 const ch = lx.s[j];
                 if (ch === '{')
@@ -243,10 +244,14 @@ function parseExprRD(src) {
                         sawSemicolon = true;
                         break;
                     }
+                    if (ch === '-' && lx.s[j + 1] === '>') {
+                        sawArrow = true;
+                        break;
+                    }
                 }
                 j++;
             }
-            if (sawColon && !sawSemicolon) {
+            if ((sawColon && !sawSemicolon) && !sawArrow) {
                 lx.next();
                 const fields = [];
                 lx.eatWs();
@@ -274,6 +279,36 @@ function parseExprRD(src) {
                 if (lx.peek() === '}')
                     lx.next();
                 return { kind: 'RecordLit', sid: (0, core_ir_1.sid)('rec'), fields };
+            }
+            else if (sawArrow && !sawSemicolon) {
+                // Map literal: { key -> value, ... }
+                lx.next();
+                const entries = [];
+                lx.eatWs();
+                if (lx.peek() !== '}') {
+                    while (true) {
+                        const key = parseOr();
+                        lx.eatWs();
+                        if (lx.peek() === '-' && lx.s[lx['i'] + 1] === '>') {
+                            lx.next();
+                            lx.next();
+                        }
+                        else { /* error-recovery */ }
+                        lx.eatWs();
+                        const value = parseOr();
+                        entries.push({ key, value });
+                        lx.eatWs();
+                        if (lx.peek() === ',') {
+                            lx.next();
+                            lx.eatWs();
+                            continue;
+                        }
+                        break;
+                    }
+                }
+                if (lx.peek() === '}')
+                    lx.next();
+                return { kind: 'MapLit', sid: (0, core_ir_1.sid)('map'), entries };
             }
             else {
                 // Block: { expr; expr; ... }
@@ -478,6 +513,8 @@ function parse(source) {
     const rawLines = pre.split(/\n+/);
     const lines = rawLines.map(s => s.trim()).filter(s => s.length > 0);
     const decls = [];
+    const reserved = new Set(['actor', 'and', 'as', 'assert', 'break', 'case', 'continue', 'data', 'effect', 'else', 'false', 'fn', 'from', 'import', 'in', 'let', 'match', 'module', 'mut', 'not', 'on', 'or', 'query', 'raises', 'return', 'schema', 'select', 'source', 'spawn', 'spec', 'state', 'stream', 'true', 'unit', 'view', 'where', 'with']);
+    function isReservedName(name) { return reserved.has(name); }
     for (let idx = 0; idx < lines.length; idx++) {
         const ln = lines[idx];
         if (ln.startsWith('module ')) {
@@ -504,6 +541,8 @@ function parse(source) {
             const m = ln.match(/^enum\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/);
             if (m) {
                 const name = m[1];
+                if (isReservedName(name))
+                    continue;
                 const rhs = m[2];
                 const variants = rhs.split('|').map(s => s.trim()).filter(Boolean).map(v => {
                     const mm = v.match(/^([A-Za-z_][A-Za-z0-9_]*)(?:\(([^)]*)\))?$/);
@@ -518,6 +557,12 @@ function parse(source) {
         // actor block form: actor Name { ... }
         if (/^actor\s+[A-Za-z_][A-Za-z0-9_]*\s*\{$/.test(ln)) {
             const name = ln.match(/^actor\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{$/)[1];
+            if (isReservedName(name)) {
+                idx++;
+                while (idx < lines.length && lines[idx] !== '}')
+                    idx++;
+                continue;
+            }
             const state = [];
             const handlers = [];
             idx++;
@@ -564,6 +609,9 @@ function parse(source) {
         if (ln.startsWith('mut ')) {
             const m = ln.match(/^mut\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/);
             if (m) {
+                if (isReservedName(m[1])) {
+                    continue;
+                }
                 decls.push({ kind: 'Let', sid: (0, core_ir_1.sid)('let'), name: m[1], type: m[2] || undefined, expr: parseExprRD(m[3]), mutable: true, span: { start: 0, end: 0, line: idx + 1 } });
                 continue;
             }
@@ -572,6 +620,9 @@ function parse(source) {
             // let name[: Type]? = expr
             const m = ln.match(/^let\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*:\s*([A-Za-z_][A-Za-z0-9_]*))?\s*=\s*(.+)$/);
             if (m) {
+                if (isReservedName(m[1])) {
+                    continue;
+                }
                 let rhs = m[3];
                 if (/^match\b/.test(rhs) && (rhs.split('{').length - 1) > (rhs.split('}').length - 1)) {
                     let depth = (rhs.match(/\{/g) || []).length - (rhs.match(/\}/g) || []).length;
@@ -589,6 +640,9 @@ function parse(source) {
             // fn name(params[:Type, ...])[:Return]? [raises e1, e2] = expr
             const m = ln.match(/^fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*(?::\s*([A-Za-z_][A-Za-z0-9_]*))?\s*(?:raises\s+([^=]+))?\s*=\s*(.+)$/);
             if (m) {
+                if (isReservedName(m[1])) {
+                    continue;
+                }
                 const params = m[2].trim() === '' ? [] : m[2].split(',').map(s => s.trim()).map(p => {
                     const pm = p.match(/^([A-Za-z_][A-Za-z0-9_]*)(?:\s*:\s*([A-Za-z_][A-Za-z0-9_]*))?$/);
                     return { name: pm?.[1] || p, type: pm?.[2] };
@@ -615,8 +669,11 @@ function parse(source) {
         }
         if (ln.startsWith('actor ')) {
             // actor Name[(param[:Type])]? [raises e1,e2] = expr
-            const m = ln.match(/^actor\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(([^:)]+)(?::\s*([A-Za-z_][A-Za-z0-9_]*))?\))?\s*(?:raises\s+([^=]+))?\s*=\s*(.+)$/);
+            const m = ln.match(/^actor\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:\(([^:)]+)(?::\s*([A-Za-z_][A-Za-z0-9_]*))?\))?\s*(?:raises\s+([^=]+))?\s*\=\s*(.+)$/);
             if (m) {
+                if (isReservedName(m[1])) {
+                    continue;
+                }
                 const name = m[1];
                 const param = m[2] ? { name: m[2], type: m[3] || undefined } : null;
                 const effects = new Set();
@@ -632,6 +689,9 @@ function parse(source) {
         if (ln.startsWith('spawn ')) {
             const m = ln.match(/^spawn\s+([A-Za-z_][A-Za-z0-9_.]*)$/);
             if (m) {
+                if (isReservedName(m[1])) {
+                    continue;
+                }
                 decls.push({ kind: 'Spawn', sid: (0, core_ir_1.sid)('spawn'), actorName: m[1], span: { start: 0, end: 0, line: idx + 1 } });
                 continue;
             }
@@ -713,6 +773,12 @@ function parse(source) {
             const m = ln.match(/^schema\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{$/);
             if (m) {
                 const name = m[1];
+                if (isReservedName(name)) {
+                    idx++;
+                    while (idx < lines.length && lines[idx] !== '}')
+                        idx++;
+                    continue;
+                }
                 idx += 1;
                 const fields = {};
                 for (; idx < lines.length; idx++) {
@@ -750,6 +816,9 @@ function parse(source) {
             const m = ln.match(/^source\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*Store<([A-Za-z_][A-Za-z0-9_]*)>\s*(?:with\s+(.+))?$/);
             if (m) {
                 const name = m[1];
+                if (isReservedName(name)) {
+                    continue;
+                }
                 const schema = m[2];
                 let config = null;
                 const withExpr = (m[3] || '').trim();
@@ -766,6 +835,9 @@ function parse(source) {
             // legacy store Name : Schema = "config"
             const m = ln.match(/^store\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:=\s*"([^"]*)")?$/);
             if (m) {
+                if (isReservedName(m[1])) {
+                    continue;
+                }
                 decls.push({ kind: 'StoreDecl', sid: (0, core_ir_1.sid)('store'), name: m[1], schema: m[2], config: m[3] ?? null, span: { start: 0, end: 0, line: idx + 1 } });
                 continue;
             }
@@ -777,6 +849,9 @@ function parse(source) {
             if (!m)
                 m = ln.match(/^query\s+([A-Za-z_][A-Za-z0-9_]*)\s+from\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s+select\s+(.+))?$/);
             if (m) {
+                if (isReservedName(m[1])) {
+                    continue;
+                }
                 const name = m[1];
                 const source = m[2];
                 const where = m[3] && m[4] ? m[3] : (m[3] && !m[4] ? undefined : undefined);
@@ -789,6 +864,9 @@ function parse(source) {
             // 2) query Name() = from x in store.stream() [where expr] select expr
             const mc = ln.match(/^query\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(\)\s*=\s*from\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\s+(.+?)\s*(?:where\s+(.+?))?\s*select\s+(.+)$/);
             if (mc) {
+                if (isReservedName(mc[1])) {
+                    continue;
+                }
                 const name = mc[1];
                 const alias = mc[2];
                 const srcExpr = mc[3];

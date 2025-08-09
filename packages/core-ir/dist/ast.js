@@ -53,6 +53,8 @@ function nodeSignature(e) {
         case 'EffectCall': return `EffectCall:${e.effect}:${e.op}(${e.args.map(a => a.sid ?? '?').join(',')})`;
         case 'RecordLit': return `RecordLit:{${e.fields.map(f => `${f.name}:${f.expr.sid ?? '?'}`).join(',')}}`;
         case 'TupleLit': return `TupleLit:(${e.elements.map(a => a.sid ?? '?').join(',')})`;
+        case 'SetLit': return `SetLit:[${e.elements.map(a => a.sid ?? '?').join(',')}]`;
+        case 'MapLit': return `MapLit:{${e.entries.map(en => `${en.key.sid ?? '?'}->${en.value.sid ?? '?'}`).join(',')}}`;
         case 'PatternOr': return `PatternOr:${e.left.sid ?? '?'}|${e.right.sid ?? '?'}`;
         case 'Match': return `Match:${e.scrutinee.sid ?? '?'}:${e.cases.length}`;
         case 'SchemaDecl': return `SchemaDecl:${e.name}:${Object.entries(e.fields).map(([k, v]) => `${k}:${v}`).join(',')}`;
@@ -122,6 +124,16 @@ function assignStableSids(e) {
         case 'TupleLit':
             for (const a of e.elements)
                 assignStableSids(a);
+            break;
+        case 'SetLit':
+            for (const a of e.elements)
+                assignStableSids(a);
+            break;
+        case 'MapLit':
+            for (const en of e.entries) {
+                assignStableSids(en.key);
+                assignStableSids(en.value);
+            }
             break;
         case 'PatternOr':
             assignStableSids(e.left);

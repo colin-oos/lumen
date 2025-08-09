@@ -570,6 +570,15 @@ function run(ast, options) {
             case 'TupleLit': {
                 return e.elements.map(x => evalExpr(x));
             }
+            case 'SetLit': {
+                return e.elements.map(x => evalExpr(x));
+            }
+            case 'MapLit': {
+                const out = [];
+                for (const en of e.entries)
+                    out.push([evalExpr(en.key), evalExpr(en.value)]);
+                return out;
+            }
             case 'Match': {
                 const value = evalExpr(e.scrutinee);
                 const hasEffectCall = (expr) => {

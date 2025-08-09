@@ -444,6 +444,14 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
       case 'TupleLit': {
         return (e.elements as any[]).map(x => evalExpr(x))
       }
+      case 'SetLit': {
+        return (e.elements as any[]).map(x => evalExpr(x))
+      }
+      case 'MapLit': {
+        const out: Array<[unknown, unknown]> = []
+        for (const en of (e as any).entries as Array<{ key: Expr, value: Expr }>) out.push([evalExpr(en.key), evalExpr(en.value)])
+        return out
+      }
       case 'Match': {
         const value = evalExpr(e.scrutinee)
         const hasEffectCall = (expr: any): boolean => {
