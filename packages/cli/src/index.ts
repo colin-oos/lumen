@@ -186,6 +186,14 @@ async function main() {
             const sym = String(req.symbol || '')
             const def = file ? getDefinitionFromProject(file, sym) : {}
             process.stdout.write(JSON.stringify({ ok: true, definition: def }) + '\n')
+          } else if (req.action === 'references') {
+            const sym = String(req.symbol || '')
+            const refs = (lspHover && require('@lumen/lsp').getReferences) ? require('@lumen/lsp').getReferences(src, sym) : []
+            process.stdout.write(JSON.stringify({ ok: true, references: refs }) + '\n')
+          } else if (req.action === 'completions') {
+            const prefix = String(req.prefix || '')
+            const comps = (lspHover && require('@lumen/lsp').getCompletions) ? require('@lumen/lsp').getCompletions(prefix) : []
+            process.stdout.write(JSON.stringify({ ok: true, completions: comps }) + '\n')
           } else {
             process.stdout.write(JSON.stringify({ ok: false, error: 'unknown action' }) + '\n')
           }
