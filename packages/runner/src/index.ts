@@ -222,7 +222,7 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
           if (d.kind === 'Fn' && d.name) {
             const fnv = evalExpr(d)
             const key = currentModule ? `${currentModule}.${d.name}` : d.name
-            env.set(key, fnv)
+            if (!env.has(key)) env.set(key, fnv)
             last = fnv
           } else if (d.kind === 'ModuleDecl') {
             currentModule = d.name

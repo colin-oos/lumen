@@ -1,0 +1,12 @@
+module demo
+
+schema User {
+  id: Int,
+  name: Text,
+}
+
+store Users: User = "sqlite:./examples/data/app.db:users#orderBy=id"
+
+query ActiveUsers from Users select id,name
+
+ActiveUsers
