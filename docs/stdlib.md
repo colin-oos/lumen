@@ -7,6 +7,7 @@ The `stdlib` module provides minimal helpers across Text, List, Set, and Map.
   - `uppercase(s): Text`
   - `lowercase(s): Text`
   - `startsWith(s, prefix): Bool`, `endsWith(s, suffix): Bool`, `contains(s, sub): Bool`
+  - `trim(s): Text`, `split(s, sep): [Text]`, `join(xs, sep): Text`, `replace(s, a, b): Text`
 - List
   - `map(xs, f)`, `filter(xs, f)`, `reduce(xs, init, f)`
   - `lengthList(xs): Int`, `head(xs)`, `tail(xs)`
