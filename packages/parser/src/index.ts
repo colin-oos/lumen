@@ -76,7 +76,12 @@ function parseExprRD(src: string): Expr {
     ;(node as any).span = { line: start.line, col: start.col }
     return node
   }
-  const assignMatch = src.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/)
+  // Support statement-level let declarations
+  const letMatch = src.match(/^let\s+([A-Za-z_][A-Za-z0-9_]*)(?:\s*:\s*([A-Za-z_][A-Za-z0-9_]*))?\s*=\s*([\s\S]+)$/)
+  if (letMatch) {
+    return { kind: 'Let', sid: sid('let'), name: letMatch[1], type: letMatch[2], expr: parseExprRD(letMatch[3]), span: { line: 1, col: 1 } } as any
+  }
+  const assignMatch = src.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([\s\S]+)$/)
   if (assignMatch) {
     return { kind: 'Assign', sid: sid('assign'), name: assignMatch[1], expr: parseExprRD(assignMatch[2]), span: { line: 1, col: 1 } } as any
   }
