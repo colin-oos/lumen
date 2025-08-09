@@ -1,61 +1,74 @@
-# LUMEN Prototype (v0.1) — Monorepo
+# LUMEN
 
-This is a minimal scaffold to begin building the LUMEN language prototype in TypeScript/Node.
+A small, deterministic, effect-gated language for building complex apps with confidence. LUMEN ships with:
 
-## Structure
-- `packages/core-ir` — Core AST types, semantic IDs, and IR utilities
-- `packages/parser`  — Minimal parser (stub) from LumenScript → IR
-- `packages/fmt`     — Canonical formatter (IR → source)
-- `packages/runner`  — Deterministic interpreter with effect hooks (stub)
-- `packages/spec`    — Spec runner and property test scaffolding (stub)
-- `packages/cli`     — CLI entry points (`lumen fmt`, `lumen run`, etc.)
-- `packages/lsp`     — Minimal LSP scaffolding (diagnostics + hover) and CLI `serve`
-- `examples/`        — Toy examples to validate end-to-end flow
-- `docs/`            — Design docs (Core IR, effects, etc.)
+- A practical syntax with expressions, pattern matching, ADTs, records/tuples, collections, and first-class functions
+- Deterministic actor runtime (ask/send/handlers) with scheduler seeding, effect gating, and policy enforcement
+- Schema/query sugar with a deterministic in-memory engine and an optional real SQLite adapter
+- A batteries-included stdlib for Text/List/Set/Map, plus deterministic effect mocks for testing
+- Tooling: formatter, type/effect checks, trace hashing, LSP (diagnostics/hover/symbols/definitions/references/rename/completions), TS type emission, and a test/spec runner
 
-## Quick Start
-```bash
-# from repository root
-npm install
+This repo is a monorepo implemented in TypeScript, with a CLI you can run locally.
+
+## Quick start
+
+- Install deps and build
+```
+npm ci
 npm run build
-npm run test
-
-# Run examples
-node packages/cli/dist/index.js run examples/hello/main.lum
-node packages/cli/dist/index.js run examples/modules/main.lum
-
-# Check round-trip + effects
-node packages/cli/dist/index.js check examples/hello
-node packages/cli/dist/index.js check examples/modules --recursive --json
-
-# Format
-node packages/cli/dist/index.js fmt examples/hello --write
 ```
 
-## Notes
-- Parser: `let`, `fn [raises ...]`, numbers, booleans, strings, binary ops, calls, imports, modules, qualified names, effect calls (`io.print`, `fs.read`, `fs.write`), `match`, ADT constructors, handler-style actors.
-- Formatter: canonical one-line forms for supported nodes.
-- Runner: deterministic; env, closures, calls; effect hooks: `io.print`, `fs.read`, `fs.write` (gated by deny policy via `--deny` or `lumen.json`), `net.get`, `time.now` mocks enabled with `--mock-effects`.
-- Checker: parse→format→parse round-trip, project-level effect propagation with call-chain diagnostics; flags `EffectCall`s; `--json` output; `--policy` with `deny`/`warn` and `--strict-warn`; match typing and ADT return validation; actor handler exhaustiveness and reply type checks.
+- Run an example:
+```
+# Simple stdlib + loops
+npm run lumen -- examples/loops/loops_with_stdlib.lum
 
-## Effects & Policy
-See `docs/effects.md` and `examples/policy`.
+# Actors
+npm run lumen -- examples/actors/adder.lum
 
-## Actors
-Router and Supervisor examples in `examples/actors`. See `docs/actors.md`.
+# Deterministic trace (with seed)
+npm run lumen -- trace examples/actors/adder.lum --seed A --hash-only
 
-## Schema & Query
-In-memory and SQLite-facade examples in `examples/newproj` and `examples/data/sqlite_query.lum`. See `docs/schema-query.md`.
+# SQLite (mocked):
+npm run lumen -- examples/data/sqlite_real_example.lum
 
-## Tooling
-- CLI: `docs/cli.md`
-- Serve protocol: use `lumen serve` and send newline-delimited JSON requests
-- LSP: `packages/lsp` provides diagnostics and hover helpers
+# Real SQLite (optional)
+npm run ci:install-sqlite
+npm run gen:sqlite
+npm run lumen -- examples/data/sqlite_real_example.lum
+```
 
-## Tutorials
-- Quickstart: docs/quickstart.md
-- End-to-end Tutorial: docs/tutorial.md
+- Format a file:
+```
+npm run lumen -- fmt examples/actors/adder.lum
+```
 
-# Quickstart Tutorial
+- Hover/symbols/defs via serve protocol:
+See `docs/serve.md` for the newline-delimited JSON protocol.
 
-- Hello world: `
+## Learn LUMEN
+
+- Start here: `docs/quickstart.md`
+- Language tour: `docs/language.md`
+- Standard library: `docs/stdlib.md`
+- Determinism (trace and scheduler seeds): `docs/determinism.md`
+- SQLite adapter (mock + real): `docs/sqlite.md`
+- CLI commands and flags: `docs/cli.md`
+- LSP/serve protocol: `docs/serve.md`
+- Type emission (TS): `docs/emit.md`
+- Benchmarks & CI sharding: `docs/benchmarks.md`, `docs/ci.md`
+
+## Project layout
+
+- `packages/*`: core packages (parser, runner, fmt, cli, lsp)
+- `examples/*`: small programs demonstrating language features
+- `tests/*`: TypeScript tests driving the CLI and runtime
+- `docs/*`: human-focused documentation
+
+## Status
+
+The implementation is feature-complete for building complex apps. Determinism is a first-class concern; all non-determinism is behind effect gates with policy controls. See `docs/determinism.md`.
+
+## License
+
+MIT

@@ -1,42 +1,82 @@
-# Quickstart Tutorial
+# Quickstart
 
-1) Build and test:
+Welcome to LUMEN. This guide gets you from zero to running examples and writing your first program.
+
+## Install and build
 ```
-npm install
+git clone <this repo>
+cd lumen-proto
+npm ci
 npm run build
-npm run test
 ```
 
-2) Run examples:
+## Run your first program
+Create `hello.lum`:
 ```
-# hello
-node packages/cli/dist/index.js run examples/hello/main.lum
+module hello
+fn greet(name: Text) raises io = io.print("Hello,", name)
 
-# actors
-node packages/cli/dist/index.js run examples/actors/router_adt.lum
-node packages/cli/dist/index.js run examples/actors/supervisor.lum
-node packages/cli/dist/index.js run examples/actors/adder.lum
-
-# schema/query
-node packages/cli/dist/index.js check examples/newproj/src/main.lum
-node packages/cli/dist/index.js check examples/data/sqlite_query.lum
-
-# effects policy
-node packages/cli/dist/index.js check examples/policy/main.lum --policy examples/policy/lumen.json --strict-warn
-
-# http interop
-node packages/cli/dist/index.js check examples/http/service.lum
+// evaluate the expression below
+if true then greet("LUMEN") else 0
+```
+Run it:
+```
+npm run lumen -- hello.lum
 ```
 
-3) Serve (LSP-like):
+## Use the stdlib
 ```
-node packages/cli/dist/index.js serve
-{"action":"symbols","file":"examples/data/sqlite_query.lum"}
+module demo
+import "examples/libs/stdlib.lum"
+
+let xs = [1,2,3,4]
+let ys = stdlib.map(xs, fn(x: Int): Int = x * 2)
+let evens = stdlib.filter(ys, fn(x: Int): Bool = x % 2 == 0)
+let sum = stdlib.reduce(evens, 0, fn(a: Int, x: Int): Int = a + x)
+sum
+```
+Run it:
+```
+npm run lumen -- demo.lum
 ```
 
-4) Emit types:
+## Actors
 ```
-node packages/cli/dist/index.js emit examples/data/sqlite_items.lum --ts
+module actors
+
+enum Msg = Add(Int, Int) | Get
+actor Adder(msg) = match msg {
+  case Add(a,b) -> 0
+  case Get reply Int -> 0
+}
+
+let a = spawn Adder
+send a, Add(1,2)
+ask a, Get
+```
+Trace with a seed:
+```
+npm run lumen -- trace actors.lum --seed A
 ```
 
-See `docs/` for detailed guides on CLI, actors, schema/query, effects, HTTP, and serve protocol.
+## Queries
+```
+schema User { id: Int, name: Text }
+store Users: User = ""
+query All from Users select id,name
+All
+```
+SQLite (optional):
+```
+npm run ci:install-sqlite
+npm run gen:sqlite
+npm run lumen -- examples/data/sqlite_real_example.lum
+```
+
+## Next steps
+- Language tour: `docs/language.md`
+- Standard library: `docs/stdlib.md`
+- CLI commands: `docs/cli.md`
+- Determinism controls: `docs/determinism.md`
+- LSP/serve: `docs/serve.md`
+- SQLite adapter: `docs/sqlite.md`
