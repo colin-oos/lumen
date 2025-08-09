@@ -77,6 +77,22 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
   env.set('stdlib.split', (s: unknown, sep: unknown) => typeof s === 'string' && typeof sep === 'string' ? (s as string).split(sep as string) : [])
   env.set('stdlib.join', (xs: unknown, sep: unknown) => Array.isArray(xs) && typeof sep === 'string' ? (xs as any[]).join(sep as string) : '')
   env.set('stdlib.replace', (s: unknown, a: unknown, b: unknown) => typeof s === 'string' && typeof a === 'string' && typeof b === 'string' ? (s as string).split(a as string).join(b as string) : s)
+  env.set('stdlib.padLeft', (s: unknown, n: unknown, ch: unknown) => {
+    const str = typeof s === 'string' ? s : String(s)
+    const width = typeof n === 'number' ? n : Number(n)
+    const fill = typeof ch === 'string' && ch.length > 0 ? ch[0] : ' '
+    if (!isFinite(width) || width <= str.length) return str
+    return fill.repeat(width - str.length) + str
+  })
+  env.set('stdlib.padRight', (s: unknown, n: unknown, ch: unknown) => {
+    const str = typeof s === 'string' ? s : String(s)
+    const width = typeof n === 'number' ? n : Number(n)
+    const fill = typeof ch === 'string' && ch.length > 0 ? ch[0] : ' '
+    if (!isFinite(width) || width <= str.length) return str
+    return str + fill.repeat(width - str.length)
+  })
+  env.set('stdlib.concat', (xs: unknown, ys: unknown) => (Array.isArray(xs) ? xs : []).concat(Array.isArray(ys) ? ys : []))
+  env.set('stdlib.flatten', (xss: unknown) => Array.isArray(xss) ? (xss as any[]).reduce((a, x) => a.concat(Array.isArray(x) ? x : [x]), [] as any[]) : [])
 
   function wrapMessage(m: unknown): { value: unknown, sink?: { done: boolean, value?: unknown } } {
     if (m && typeof m === 'object' && 'value' in (m as any)) return m as any
