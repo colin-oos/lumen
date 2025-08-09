@@ -11,3 +11,11 @@ export declare function getReferences(source: string, symbol: string): Array<{
     column: number;
 }>;
 export declare function getCompletions(prefix: string): string[];
+export declare function rename(source: string, oldName: string, newName: string): {
+    edits: Array<{
+        line: number;
+        column: number;
+        length: number;
+    }>;
+    newSource: string;
+};

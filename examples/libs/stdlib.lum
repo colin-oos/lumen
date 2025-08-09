@@ -4,6 +4,9 @@ module stdlib
 fn length(s): Int = 0  // placeholder; actual integration requires host interop
 fn uppercase(s): Text = s
 fn lowercase(s): Text = s
+fn startsWith(s, prefix): Bool = (s == prefix) // minimal stub
+fn endsWith(s, suffix): Bool = (s == suffix) // minimal stub
+fn contains(s, sub): Bool = (s == sub) // minimal stub
 
 // List helpers using loops
 fn map(xs, f): [Int] = {

@@ -244,6 +244,12 @@ async function main() {
                         const comps = (lspHover && require('@lumen/lsp').getCompletions) ? require('@lumen/lsp').getCompletions(prefix) : [];
                         process.stdout.write(JSON.stringify({ ok: true, completions: comps }) + '\n');
                     }
+                    else if (req.action === 'rename') {
+                        const oldName = String(req.oldName || '');
+                        const newName = String(req.newName || '');
+                        const rn = (lspHover && require('@lumen/lsp').rename) ? require('@lumen/lsp').rename(src, oldName, newName) : { edits: [], newSource: src };
+                        process.stdout.write(JSON.stringify({ ok: true, rename: rn }) + '\n');
+                    }
                     else {
                         process.stdout.write(JSON.stringify({ ok: false, error: 'unknown action' }) + '\n');
                     }

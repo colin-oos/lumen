@@ -4,6 +4,7 @@ exports.getDiagnostics = getDiagnostics;
 exports.getHover = getHover;
 exports.getReferences = getReferences;
 exports.getCompletions = getCompletions;
+exports.rename = rename;
 function getDiagnostics(source) {
     // existing lightweight checks
     const lines = source.split(/\n+/);
@@ -36,4 +37,19 @@ function getReferences(source, symbol) {
 function getCompletions(prefix) {
     const keywords = ['let', 'mut', 'fn', 'actor', 'enum', 'if', 'then', 'else', 'match', 'case', 'while', 'for', 'break', 'continue', 'import', 'module'];
     return keywords.filter(k => k.startsWith(prefix));
+}
+function rename(source, oldName, newName) {
+    const lines = source.split(/\n/);
+    const edits = [];
+    let newSource = source;
+    // naive replace occurrences; in real impl, use AST scoping
+    for (let i = 0; i < lines.length; i++) {
+        const idx = lines[i].indexOf(oldName);
+        if (idx >= 0) {
+            edits.push({ line: i + 1, column: idx + 1, length: oldName.length });
+        }
+    }
+    if (edits.length > 0)
+        newSource = source.replace(new RegExp(oldName, 'g'), newName);
+    return { edits, newSource };
 }

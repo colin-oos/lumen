@@ -34,3 +34,18 @@ export function getCompletions(prefix: string): string[] {
   const keywords = ['let','mut','fn','actor','enum','if','then','else','match','case','while','for','break','continue','import','module']
   return keywords.filter(k => k.startsWith(prefix))
 }
+
+export function rename(source: string, oldName: string, newName: string): { edits: Array<{ line: number, column: number, length: number }>, newSource: string } {
+  const lines = source.split(/\n/)
+  const edits: Array<{ line: number, column: number, length: number }> = []
+  let newSource = source
+  // naive replace occurrences; in real impl, use AST scoping
+  for (let i = 0; i < lines.length; i++) {
+    const idx = lines[i].indexOf(oldName)
+    if (idx >= 0) {
+      edits.push({ line: i + 1, column: idx + 1, length: oldName.length })
+    }
+  }
+  if (edits.length > 0) newSource = source.replace(new RegExp(oldName, 'g'), newName)
+  return { edits, newSource }
+}
