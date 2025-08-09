@@ -4,3 +4,4 @@ export declare function parseSqliteConfig(config: string): {
     table: string;
 } | null;
 export declare function loadSqlite(config: string, where?: (row: Record<string, unknown>) => boolean, projection?: string[]): Array<Record<string, unknown>>;
+export declare function prepareAndRun(config: string, query: string, params: unknown[]): Array<Record<string, unknown>>;
