@@ -310,6 +310,7 @@ function emitTypes(ast: any): string {
   if (ast.kind !== 'Program') return ''
   const lines: string[] = []
   const enumToCtors = new Map<string, Array<{ name: string, params: string[] }>>()
+  const ctorToEnum = new Map<string, { enumName: string, params: string[] }>()
   const schemaMap = new Map<string, Record<string, string>>()
   const storeToSchema = new Map<string, string>()
   function tsType(t?: string): string {
@@ -321,7 +322,10 @@ function emitTypes(ast: any): string {
     return 'unknown'
   }
   for (const d of ast.decls) {
-    if (d.kind === 'EnumDecl') enumToCtors.set(d.name, d.variants)
+    if (d.kind === 'EnumDecl') {
+      enumToCtors.set(d.name, d.variants)
+      for (const v of d.variants) ctorToEnum.set(v.name, { enumName: d.name, params: v.params || [] })
+    }
     if (d.kind === 'SchemaDecl') schemaMap.set(d.name, d.fields)
     if (d.kind === 'StoreDecl') storeToSchema.set(d.name, d.schema)
   }
@@ -343,6 +347,32 @@ function emitTypes(ast: any): string {
         lines.push(`type ${d.name} = Array<Pick<${srcSchemaName}, ${keys}>>`)
       } else {
         lines.push(`type ${d.name} = Array<${srcSchemaName}>`)
+      }
+    }
+    if (d.kind === 'ActorDeclNew') {
+      const actorName = d.name
+      const ctorNames = new Set<string>()
+      const enumNames = new Set<string>()
+      for (const h of d.handlers as Array<any>) {
+        if (h.pattern && h.pattern.kind === 'Ctor') {
+          ctorNames.add(h.pattern.name)
+          const meta = ctorToEnum.get(h.pattern.name)
+          if (meta) enumNames.add(meta.enumName)
+        }
+      }
+      if (ctorNames.size > 0) {
+        if (enumNames.size === 1) {
+          const en = Array.from(enumNames)[0]
+          lines.push(`type ${actorName}Msg = ${en}`)
+        } else {
+          const parts: string[] = []
+          for (const cn of ctorNames) {
+            const meta = ctorToEnum.get(cn)
+            const params = meta ? meta.params : []
+            parts.push(`{ $: '${cn}', values: [${params.map(tsType).join(', ')}] }`)
+          }
+          lines.push(`type ${actorName}Msg = ${parts.join(' | ')}`)
+        }
       }
     }
   }

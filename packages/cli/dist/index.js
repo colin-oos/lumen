@@ -368,6 +368,7 @@ function emitTypes(ast) {
         return '';
     const lines = [];
     const enumToCtors = new Map();
+    const ctorToEnum = new Map();
     const schemaMap = new Map();
     const storeToSchema = new Map();
     function tsType(t) {
@@ -384,8 +385,11 @@ function emitTypes(ast) {
         return 'unknown';
     }
     for (const d of ast.decls) {
-        if (d.kind === 'EnumDecl')
+        if (d.kind === 'EnumDecl') {
             enumToCtors.set(d.name, d.variants);
+            for (const v of d.variants)
+                ctorToEnum.set(v.name, { enumName: d.name, params: v.params || [] });
+        }
         if (d.kind === 'SchemaDecl')
             schemaMap.set(d.name, d.fields);
         if (d.kind === 'StoreDecl')
@@ -411,6 +415,34 @@ function emitTypes(ast) {
             }
             else {
                 lines.push(`type ${d.name} = Array<${srcSchemaName}>`);
+            }
+        }
+        if (d.kind === 'ActorDeclNew') {
+            const actorName = d.name;
+            const ctorNames = new Set();
+            const enumNames = new Set();
+            for (const h of d.handlers) {
+                if (h.pattern && h.pattern.kind === 'Ctor') {
+                    ctorNames.add(h.pattern.name);
+                    const meta = ctorToEnum.get(h.pattern.name);
+                    if (meta)
+                        enumNames.add(meta.enumName);
+                }
+            }
+            if (ctorNames.size > 0) {
+                if (enumNames.size === 1) {
+                    const en = Array.from(enumNames)[0];
+                    lines.push(`type ${actorName}Msg = ${en}`);
+                }
+                else {
+                    const parts = [];
+                    for (const cn of ctorNames) {
+                        const meta = ctorToEnum.get(cn);
+                        const params = meta ? meta.params : [];
+                        parts.push(`{ $: '${cn}', values: [${params.map(tsType).join(', ')}] }`);
+                    }
+                    lines.push(`type ${actorName}Msg = ${parts.join(' | ')}`);
+                }
             }
         }
     }
