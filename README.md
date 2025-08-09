@@ -52,6 +52,9 @@ In-memory and SQLite-facade examples in `examples/newproj` and `examples/data/sq
 - Serve protocol: use `lumen serve` and send newline-delimited JSON requests
 - LSP: `packages/lsp` provides diagnostics and hover helpers
 
+## Tutorials
+- Quickstart: docs/quickstart.md
+
 # Quickstart Tutorial
 
 - Hello world: `node packages/cli/dist/index.js run examples/hello/main.lum`
