@@ -330,8 +330,13 @@ async function main() {
     const policy = policyPath && fs.existsSync(policyPath) ? JSON.parse(fs.readFileSync(policyPath, 'utf8')) : null
     const policyReport = policy ? checkPolicyDetailed([{ path: entry, ast }], policy) : { errors: [], warnings: [] as string[] }
     const ok = policyReport.errors.length === 0 && (!strictWarn || policyReport.warnings.length === 0)
-    const out = { ok, value: res.value, trace: res.trace, policy: policyReport, deniedEffects: Array.from(deniedEffects) }
+    const out = { ok, value: res.value, trace: res.trace, policy: policyReport, deniedEffects: Array.from(deniedEffects), denials: (res as any).denials ?? [] }
     console.log(JSON.stringify(out, null, 2))
+    // If any denials occurred at runtime, emit error and exit non-zero
+    if ((res as any).denials && (res as any).denials.length > 0) {
+      for (const d of (res as any).denials) console.error(`denied: ${d.effect} (${d.reason})`)
+      process.exit(1)
+    }
     if (!ok) process.exit(2)
     return
   }

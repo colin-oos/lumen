@@ -5,6 +5,7 @@ import { httpGet, httpPost } from './adapters/http'
 export interface RunResult {
   value: unknown
   trace: Array<{ sid: string, note: string }>
+  denials?: Array<{ effect: string, reason: string }>
 }
 
 const LOOP_BREAK = Symbol.for('lumen.break')
@@ -18,6 +19,7 @@ function hash32(s: string): number {
 
 export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffects?: boolean, schedulerSeed?: string }): RunResult {
   const trace: RunResult['trace'] = []
+  const denials: Array<{ effect: string, reason: string }> = []
   const env = new Map<string, unknown>()
   let currentModule: string | null = null
   // simple actor mailbox map
@@ -122,7 +124,8 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
         if (actor.body && actor.paramName) {
           const prevEnv = new Map(env)
           env.set(actor.paramName, msgObj.value)
-          effectStack.push(actor.effects)
+          const allowed = actor.effects instanceof Set ? actor.effects : new Set<string>(Array.isArray(actor.effects as any) ? (actor.effects as any as string[]) : [])
+          effectStack.push(allowed)
           try { evalExpr(actor.body) } finally {
             effectStack.pop(); env.clear(); for (const [k,v] of prevEnv) env.set(k,v)
           }
@@ -141,7 +144,8 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
             // load state into env and binds
             for (const [k,v] of actor.state) env.set(k, v)
             for (const [k,v] of chosen.binds) env.set(k, v)
-            effectStack.push(actor.effects)
+            const allowed = actor.effects instanceof Set ? actor.effects : new Set<string>(Array.isArray(actor.effects as any) ? (actor.effects as any as string[]) : [])
+            effectStack.push(allowed)
             try {
               // guard check (must be pure, we just evaluate expression)
               let guardOk = true
@@ -339,7 +343,7 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
             mailboxes.set(key, [])
             last = null
           } else if (d.kind === 'Spawn') {
-            const key = d.actorName
+            const key = currentModule ? `${currentModule}.${d.actorName}` : d.actorName
             if (!mailboxes.has(key)) mailboxes.set(key, [])
             last = key
           } else if (d.kind === 'Send') {
@@ -397,13 +401,15 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
         if (typeof callee === 'function') {
           const fx: Set<string> | undefined = (callee as any).lumenEffects
           if (fx && options?.deniedEffects && intersects(fx, options.deniedEffects)) {
-            const eff = Array.from(fx).find(x => options.deniedEffects!.has(x))
+            const eff = Array.from(fx).find(x => options.deniedEffects!.has(x)) as string
+            denials.push({ effect: eff, reason: 'policy-deny' })
             return `(denied effect ${eff})`
           }
           // Enforce actor-allowed effects if present
           const allowed = effectStack.length ? effectStack[effectStack.length - 1] : null
           if (fx && allowed) {
-            for (const eff of fx) if (!allowed.has(eff)) return `(denied effect ${eff})`
+            if (!(allowed instanceof Set)) { for (const eff of fx) { denials.push({ effect: eff, reason: 'actor-cap' }); return `(denied effect ${eff})` } }
+            for (const eff of fx) if (!(allowed as Set<string>).has(eff)) { denials.push({ effect: eff, reason: 'actor-cap' }); return `(denied effect ${eff})` }
           }
           return (callee as any)(...args)
         }
@@ -414,16 +420,19 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
         return { $: e.name, values }
       }
       case 'Spawn': {
-        const key = e.actorName
+        const key = currentModule ? `${currentModule}.${e.actorName}` : e.actorName
         if (!mailboxes.has(key)) mailboxes.set(key, [])
         return key
       }
       case 'EffectCall': {
         // Enforce runtime deny for effect
         const eff = e.effect as string
-        if (options?.deniedEffects && options.deniedEffects.has(eff)) return `(denied effect ${eff})`
+        if (options?.deniedEffects && options.deniedEffects.has(eff)) { denials.push({ effect: eff, reason: 'policy-deny' }); return `(denied effect ${eff})` }
         const allowed = effectStack.length ? effectStack[effectStack.length - 1] : null
-        if (allowed && !allowed.has(eff)) return `(denied effect ${eff})`
+        if (allowed) {
+          if (!(allowed instanceof Set)) { denials.push({ effect: eff, reason: 'actor-cap' }); return `(denied effect ${eff})` }
+          if (!(allowed as Set<string>).has(eff)) { denials.push({ effect: eff, reason: 'actor-cap' }); return `(denied effect ${eff})` }
+        }
         // Minimal effect hooks
         if (e.effect === 'io' && e.op === 'print') {
           // eslint-disable-next-line no-console
@@ -598,7 +607,7 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
     }
   }
   const value = evalExpr(ast)
-  return { value, trace }
+  return { value, trace, denials }
 }
 function intersects(a: Set<string>, b: Set<string>): boolean {
   for (const v of a) if (b.has(v)) return true
