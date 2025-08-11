@@ -124,8 +124,15 @@ async function main() {
                 if (!e || typeof e !== 'object')
                     return;
                 if (e.kind === 'Fn' && e.sid === spec.targetSid) {
-                    e.body = (0, parser_1.parse)(spec.newBody);
-                    (0, core_ir_1.assignStableSids)(e.body);
+                    const parsed = (0, parser_1.parse)(spec.newBody);
+                    let newBody = parsed;
+                    if (parsed && parsed.kind === 'Program') {
+                        const decls = parsed.decls || [];
+                        if (decls.length === 1 && decls[0].kind === 'Let')
+                            newBody = decls[0].expr;
+                    }
+                    (0, core_ir_1.assignStableSids)(newBody);
+                    e.body = newBody;
                     changed = true;
                 }
                 for (const k of Object.keys(e)) {

@@ -103,8 +103,14 @@ async function main() {
       function rewrite(e: any): void {
         if (!e || typeof e !== 'object') return
         if (e.kind === 'Fn' && e.sid === spec.targetSid) {
-          e.body = parse(spec.newBody)
-          assignStableSids(e.body)
+          const parsed = parse(spec.newBody)
+          let newBody: any = parsed
+          if (parsed && parsed.kind === 'Program') {
+            const decls = (parsed as any).decls || []
+            if (decls.length === 1 && decls[0].kind === 'Let') newBody = decls[0].expr
+          }
+          assignStableSids(newBody)
+          e.body = newBody
           changed = true
         }
         for (const k of Object.keys(e)) {

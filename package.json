@@ -22,6 +22,7 @@
     "test:determinism": "bash scripts/ci/test_determinism.sh",
     "test:caps": "bash scripts/ci/test_caps.sh",
     "test:sqlite": "bash scripts/ci/test_sqlite_parity.sh",
+    "test:editscript": "node --max-old-space-size=1536 ./node_modules/ts-node/dist/bin.js ./tests/editscript-apply.ts",
     "ci:install-sqlite": "npm i better-sqlite3 || true"
   },
   "devDependencies": {
