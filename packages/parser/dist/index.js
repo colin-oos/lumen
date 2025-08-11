@@ -15,14 +15,37 @@ const core_ir_1 = require("@lumen/core-ir");
 function stripComments(src) {
     // remove block comments
     let out = src.replace(/\/\*[\s\S]*?\*\//g, '');
-    // remove doc comments /// and line comments //
+    // remove doc comments /// and line comments //, but keep // inside strings
     out = out.split('\n').map(line => {
-        if (line.trim().startsWith('///'))
+        const trimmed = line.trim();
+        if (trimmed.startsWith('///'))
             return '';
-        const idx = line.indexOf('//');
-        if (idx >= 0)
-            return line.slice(0, idx);
-        return line;
+        let result = '';
+        let inString = false;
+        let escaped = false;
+        for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            const next = i + 1 < line.length ? line[i + 1] : '';
+            if (!inString && ch === '/' && next === '/') {
+                break;
+            }
+            result += ch;
+            if (inString) {
+                if (escaped) {
+                    escaped = false;
+                }
+                else if (ch === '\\') {
+                    escaped = true;
+                }
+                else if (ch === '"') {
+                    inString = false;
+                }
+            }
+            else if (ch === '"') {
+                inString = true;
+            }
+        }
+        return result;
     }).join('\n');
     return out;
 }

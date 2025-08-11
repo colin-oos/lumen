@@ -1,0 +1,3 @@
+module fx
+fn bad(url: Text) = net.get(url)
+bad("https://example.com")

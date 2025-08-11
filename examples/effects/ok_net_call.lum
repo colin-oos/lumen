@@ -1,0 +1,3 @@
+module fx
+fn fetch(url: Text) raises net = net.get(url)
+fetch("https://example.com")

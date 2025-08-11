@@ -789,11 +789,10 @@ function structurallySimilar(a, b) {
         }
         return true;
     }
-    const keysA = Object.keys(a).filter(k => k !== 'sid');
-    const keysB = Object.keys(b).filter(k => k !== 'sid');
-    if (keysA.length !== keysB.length)
-        return false;
-    for (const k of keysA) {
+    const keysA = Object.keys(a).filter(k => k !== 'sid' && k !== 'span');
+    const keysB = Object.keys(b).filter(k => k !== 'sid' && k !== 'span');
+    const keySet = new Set([...keysA, ...keysB]);
+    for (const k of keySet) {
         if (!structEqual(a[k], b[k]))
             return false;
     }
