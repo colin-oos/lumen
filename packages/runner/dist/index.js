@@ -16,6 +16,7 @@ function hash32(s) {
 function run(ast, options) {
     const trace = [];
     const denials = [];
+    let traceSuppression = 0;
     const env = new Map();
     let currentModule = null;
     // simple actor mailbox map
@@ -315,7 +316,8 @@ function run(ast, options) {
         return res;
     }
     function evalExpr(e) {
-        trace.push({ sid: e.sid ?? 'unknown', note: e.kind });
+        if (traceSuppression === 0)
+            trace.push({ sid: e.sid ?? 'unknown', note: e.kind });
         switch (e.kind) {
             case 'Program': {
                 let last = null;
@@ -341,11 +343,17 @@ function run(ast, options) {
                         if (d.kind === 'StoreDecl') {
                             // If config is provided, attempt to load JSON array
                             if (d.config) {
-                                const data = evalExpr({ kind: 'EffectCall', sid: 'eff:dbload', effect: 'db', op: 'load', args: [{ kind: 'LitText', sid: 'lit', value: d.config }] });
-                                if (Array.isArray(data))
-                                    stores.set(d.name, data);
-                                else
-                                    stores.set(d.name, []);
+                                traceSuppression++;
+                                try {
+                                    const data = evalExpr({ kind: 'EffectCall', sid: 'eff:dbload', effect: 'db', op: 'load', args: [{ kind: 'LitText', sid: 'lit', value: d.config }] });
+                                    if (Array.isArray(data))
+                                        stores.set(d.name, data);
+                                    else
+                                        stores.set(d.name, []);
+                                }
+                                finally {
+                                    traceSuppression--;
+                                }
                             }
                             else
                                 stores.set(d.name, []);

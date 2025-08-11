@@ -20,6 +20,7 @@ function hash32(s: string): number {
 export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffects?: boolean, schedulerSeed?: string }): RunResult {
   const trace: RunResult['trace'] = []
   const denials: Array<{ effect: string, reason: string }> = []
+  let traceSuppression = 0
   const env = new Map<string, unknown>()
   let currentModule: string | null = null
   // simple actor mailbox map
@@ -259,7 +260,7 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
   }
 
   function evalExpr(e: Expr): unknown {
-    trace.push({ sid: (e as any).sid ?? 'unknown', note: e.kind })
+    if (traceSuppression === 0) trace.push({ sid: (e as any).sid ?? 'unknown', note: e.kind })
     switch (e.kind) {
       case 'Program': {
         let last: unknown = null
@@ -281,9 +282,14 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
             if (d.kind === 'StoreDecl') {
               // If config is provided, attempt to load JSON array
               if (d.config) {
-                const data = evalExpr({ kind: 'EffectCall', sid: 'eff:dbload', effect: 'db' as any, op: 'load', args: [{ kind: 'LitText', sid: 'lit', value: d.config } as any] } as any)
-                if (Array.isArray(data)) stores.set(d.name, data as any)
-                else stores.set(d.name, [])
+                traceSuppression++
+                try {
+                  const data = evalExpr({ kind: 'EffectCall', sid: 'eff:dbload', effect: 'db' as any, op: 'load', args: [{ kind: 'LitText', sid: 'lit', value: d.config } as any] } as any)
+                  if (Array.isArray(data)) stores.set(d.name, data as any)
+                  else stores.set(d.name, [])
+                } finally {
+                  traceSuppression--
+                }
               } else stores.set(d.name, [])
             }
             if (d.kind === 'QueryDecl') {
@@ -299,7 +305,7 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
                 return ok
               } : undefined
               if (storeDecl && isSqliteConfig(storeDecl.config)) {
-                const arr = loadSqlite(storeDecl.config as string, whereFn, d.projection as any)
+                const arr = loadSqlite(storeDecl.config as string, whereFn, (d.projection as any))
                 env.set(key, arr)
               } else {
                 const rows = stores.get(d.source) || []
@@ -332,11 +338,11 @@ export function run(ast: Expr, options?: { deniedEffects?: Set<string>, mockEffe
               guard: h.guard ? (h.guard as any) : undefined,
               reply: h.replyType ? (_msg: unknown, binds: Map<string, unknown>) => {
                 const prev = new Map(env); for (const [k,v] of binds) env.set(k, v)
-                try { return evalExpr(h.body) } finally { env.clear(); for (const [k,v] of prev) env.set(k,v) }
+                try { return evalExpr(h.body) } finally { env.clear(); for (const [k,v] of prev) env.set(k, v) }
               } : undefined,
               run: (binds: Map<string, unknown>) => {
                 const prev = new Map(env); for (const [k,v] of binds) env.set(k, v)
-                try { return evalExpr(h.body) } finally { env.clear(); for (const [k,v] of prev) env.set(k,v) }
+                try { return evalExpr(h.body) } finally { env.clear(); for (const [k,v] of prev) env.set(k, v) }
               }
             }))
             actors.set(key, { effects: d.effects as any, state, handlers })
