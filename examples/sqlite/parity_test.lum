@@ -1,0 +1,5 @@
+module demo
+schema User { id: Int, name: Text }
+store Users: User = "sqlite:./examples/data/app.db:users#orderBy=id"
+query All from Users select id,name
+All

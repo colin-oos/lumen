@@ -19,12 +19,14 @@ function isSqliteConfig(config) {
 function parseSqliteConfig(config) {
     if (!isSqliteConfig(config))
         return null;
-    // format: sqlite:<filePath>:<table>
+    // format: sqlite:<filePath>:<table>[#fragment]
     const rest = config.slice('sqlite:'.length);
     const idx = rest.lastIndexOf(':');
     if (idx <= 0)
         return { path: rest, table: 'main' };
-    return { path: rest.slice(0, idx), table: rest.slice(idx + 1) };
+    const rawTable = rest.slice(idx + 1);
+    const table = rawTable.split('#')[0];
+    return { path: rest.slice(0, idx), table };
 }
 function loadSqliteReal(config, where, projection) {
     const parsed = parseSqliteConfig(config);
