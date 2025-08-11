@@ -102,7 +102,7 @@ function nodeSignature(e: Expr): string {
     case 'PatternOr': return `PatternOr:${(e.left as any).sid ?? '?'}|${(e.right as any).sid ?? '?'}`
     case 'Match': return `Match:${(e.scrutinee as any).sid ?? '?'}:${e.cases.length}`
     case 'SchemaDecl': return `SchemaDecl:${e.name}:${Object.entries(e.fields).map(([k,v])=>`${k}:${v}`).join(',')}`
-    case 'StoreDecl': return `StoreDecl:${e.name}:${e.schema}:${e.config ?? ''}`
+    case 'StoreDecl': return `StoreDecl:${e.name}:${e.schema}`
     case 'QueryDecl': return `QueryDecl:${e.name}:${e.source}:${(e.predicate as any)?.sid ?? ''}:${(e.projection || []).join(',')}`
     case 'ImportDecl': return `ImportDecl:${e.path}:${e.alias ?? ''}`
     case 'ModuleDecl': return `ModuleDecl:${e.name}`

@@ -15,6 +15,8 @@ function hash32(s) {
 }
 function run(ast, options) {
     const trace = [];
+    const denials = [];
+    let traceSuppression = 0;
     const env = new Map();
     let currentModule = null;
     // simple actor mailbox map
@@ -131,7 +133,8 @@ function run(ast, options) {
                 if (actor.body && actor.paramName) {
                     const prevEnv = new Map(env);
                     env.set(actor.paramName, msgObj.value);
-                    effectStack.push(actor.effects);
+                    const allowed = actor.effects instanceof Set ? actor.effects : new Set(Array.isArray(actor.effects) ? actor.effects : []);
+                    effectStack.push(allowed);
                     try {
                         evalExpr(actor.body);
                     }
@@ -161,7 +164,8 @@ function run(ast, options) {
                             env.set(k, v);
                         for (const [k, v] of chosen.binds)
                             env.set(k, v);
-                        effectStack.push(actor.effects);
+                        const allowed = actor.effects instanceof Set ? actor.effects : new Set(Array.isArray(actor.effects) ? actor.effects : []);
+                        effectStack.push(allowed);
                         try {
                             // guard check (must be pure, we just evaluate expression)
                             let guardOk = true;
@@ -312,7 +316,8 @@ function run(ast, options) {
         return res;
     }
     function evalExpr(e) {
-        trace.push({ sid: e.sid ?? 'unknown', note: e.kind });
+        if (traceSuppression === 0)
+            trace.push({ sid: e.sid ?? 'unknown', note: e.kind });
         switch (e.kind) {
             case 'Program': {
                 let last = null;
@@ -338,11 +343,17 @@ function run(ast, options) {
                         if (d.kind === 'StoreDecl') {
                             // If config is provided, attempt to load JSON array
                             if (d.config) {
-                                const data = evalExpr({ kind: 'EffectCall', sid: 'eff:dbload', effect: 'db', op: 'load', args: [{ kind: 'LitText', sid: 'lit', value: d.config }] });
-                                if (Array.isArray(data))
-                                    stores.set(d.name, data);
-                                else
-                                    stores.set(d.name, []);
+                                traceSuppression++;
+                                try {
+                                    const data = evalExpr({ kind: 'EffectCall', sid: 'eff:dbload', effect: 'db', op: 'load', args: [{ kind: 'LitText', sid: 'lit', value: d.config }] });
+                                    if (Array.isArray(data))
+                                        stores.set(d.name, data);
+                                    else
+                                        stores.set(d.name, []);
+                                }
+                                finally {
+                                    traceSuppression--;
+                                }
                             }
                             else
                                 stores.set(d.name, []);
@@ -440,7 +451,7 @@ function run(ast, options) {
                         last = null;
                     }
                     else if (d.kind === 'Spawn') {
-                        const key = d.actorName;
+                        const key = currentModule ? `${currentModule}.${d.actorName}` : d.actorName;
                         if (!mailboxes.has(key))
                             mailboxes.set(key, []);
                         last = key;
@@ -512,14 +523,23 @@ function run(ast, options) {
                     const fx = callee.lumenEffects;
                     if (fx && options?.deniedEffects && intersects(fx, options.deniedEffects)) {
                         const eff = Array.from(fx).find(x => options.deniedEffects.has(x));
+                        denials.push({ effect: eff, reason: 'policy-deny' });
                         return `(denied effect ${eff})`;
                     }
                     // Enforce actor-allowed effects if present
                     const allowed = effectStack.length ? effectStack[effectStack.length - 1] : null;
                     if (fx && allowed) {
-                        for (const eff of fx)
-                            if (!allowed.has(eff))
+                        if (!(allowed instanceof Set)) {
+                            for (const eff of fx) {
+                                denials.push({ effect: eff, reason: 'actor-cap' });
                                 return `(denied effect ${eff})`;
+                            }
+                        }
+                        for (const eff of fx)
+                            if (!allowed.has(eff)) {
+                                denials.push({ effect: eff, reason: 'actor-cap' });
+                                return `(denied effect ${eff})`;
+                            }
                     }
                     return callee(...args);
                 }
@@ -530,7 +550,7 @@ function run(ast, options) {
                 return { $: e.name, values };
             }
             case 'Spawn': {
-                const key = e.actorName;
+                const key = currentModule ? `${currentModule}.${e.actorName}` : e.actorName;
                 if (!mailboxes.has(key))
                     mailboxes.set(key, []);
                 return key;
@@ -538,11 +558,21 @@ function run(ast, options) {
             case 'EffectCall': {
                 // Enforce runtime deny for effect
                 const eff = e.effect;
-                if (options?.deniedEffects && options.deniedEffects.has(eff))
+                if (options?.deniedEffects && options.deniedEffects.has(eff)) {
+                    denials.push({ effect: eff, reason: 'policy-deny' });
                     return `(denied effect ${eff})`;
+                }
                 const allowed = effectStack.length ? effectStack[effectStack.length - 1] : null;
-                if (allowed && !allowed.has(eff))
-                    return `(denied effect ${eff})`;
+                if (allowed) {
+                    if (!(allowed instanceof Set)) {
+                        denials.push({ effect: eff, reason: 'actor-cap' });
+                        return `(denied effect ${eff})`;
+                    }
+                    if (!allowed.has(eff)) {
+                        denials.push({ effect: eff, reason: 'actor-cap' });
+                        return `(denied effect ${eff})`;
+                    }
+                }
                 // Minimal effect hooks
                 if (e.effect === 'io' && e.op === 'print') {
                     // eslint-disable-next-line no-console
@@ -792,7 +822,7 @@ function run(ast, options) {
         }
     }
     const value = evalExpr(ast);
-    return { value, trace };
+    return { value, trace, denials };
 }
 function intersects(a, b) {
     for (const v of a)

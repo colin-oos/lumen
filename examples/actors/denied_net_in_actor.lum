@@ -1,0 +1,5 @@
+module actors
+actor A(msg) = net.get("https://blocked")
+let a = spawn A
+send a, 0
+0

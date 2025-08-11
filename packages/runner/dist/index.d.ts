@@ -5,6 +5,10 @@ export interface RunResult {
         sid: string;
         note: string;
     }>;
+    denials?: Array<{
+        effect: string;
+        reason: string;
+    }>;
 }
 export declare function run(ast: Expr, options?: {
     deniedEffects?: Set<string>;

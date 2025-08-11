@@ -41,13 +41,27 @@ function usage() {
 `);
 }
 async function main() {
-    let [, , cmd, target, ...rest] = process.argv;
+    let [, , cmd, maybeTarget, ...rest] = process.argv;
     if (!cmd) {
         usage();
         process.exit(1);
     }
+    // Allow flags before the path, e.g., `fmt --write .`
+    let target = maybeTarget;
+    const allArgs = [maybeTarget, ...rest].filter(Boolean);
+    const write = allArgs.includes('--write');
+    const recursive = allArgs.includes('--recursive');
+    if (!target || target.startsWith('-')) {
+        const nonFlag = rest.find(a => a && !a.startsWith('-'));
+        if (nonFlag) {
+            const idx = rest.indexOf(nonFlag);
+            if (idx !== -1)
+                rest.splice(idx, 1);
+            target = nonFlag;
+        }
+    }
     if (!target) {
-        if (cmd === 'serve' || cmd === 'cache')
+        if (cmd === 'serve' || cmd === 'cache' || cmd === 'fmt' || cmd === 'check' || cmd === 'test')
             target = '.';
         else {
             usage();
@@ -56,8 +70,6 @@ async function main() {
     }
     const resolved = path_1.default.resolve(target);
     const isDir = fs_1.default.existsSync(resolved) && fs_1.default.lstatSync(resolved).isDirectory();
-    const write = rest.includes('--write');
-    const recursive = rest.includes('--recursive');
     const runOnFiles = (files, fn) => {
         for (const f of files)
             fn(f);
@@ -87,6 +99,65 @@ async function main() {
             return;
         }
         console.log('usage: lumen emit <file> --ts');
+        return;
+    }
+    if (cmd === 'apply') {
+        // Apply a simple EditScript by SID across .lum files recursively from CWD
+        const jsonPath = resolved;
+        if (!fs_1.default.existsSync(jsonPath)) {
+            console.error('apply: JSON file not found');
+            process.exit(1);
+        }
+        const spec = JSON.parse(fs_1.default.readFileSync(jsonPath, 'utf8'));
+        if (!spec || !spec.targetSid || typeof spec.newBody !== 'string') {
+            console.error('apply: invalid spec (expected { targetSid, newBody })');
+            process.exit(1);
+        }
+        const files = collectLumFiles(process.cwd(), true);
+        let applied = false;
+        for (const f of files) {
+            const src = fs_1.default.readFileSync(f, 'utf8');
+            const ast = (0, parser_1.parse)(src);
+            (0, core_ir_1.assignStableSids)(ast);
+            let changed = false;
+            function rewrite(e) {
+                if (!e || typeof e !== 'object')
+                    return;
+                if (e.kind === 'Fn' && e.sid === spec.targetSid) {
+                    const parsed = (0, parser_1.parse)(spec.newBody);
+                    let newBody = parsed;
+                    if (parsed && parsed.kind === 'Program') {
+                        const decls = parsed.decls || [];
+                        if (decls.length === 1 && decls[0].kind === 'Let')
+                            newBody = decls[0].expr;
+                    }
+                    (0, core_ir_1.assignStableSids)(newBody);
+                    e.body = newBody;
+                    changed = true;
+                }
+                for (const k of Object.keys(e)) {
+                    const v = e[k];
+                    if (v && typeof v === 'object' && 'kind' in v)
+                        rewrite(v);
+                    if (Array.isArray(v))
+                        for (const it of v)
+                            if (it && typeof it === 'object' && 'kind' in it)
+                                rewrite(it);
+                }
+            }
+            rewrite(ast);
+            if (changed) {
+                const out = (0, fmt_1.format)(ast);
+                fs_1.default.writeFileSync(f, out, 'utf8');
+                applied = true;
+                break;
+            }
+        }
+        if (!applied) {
+            console.error('apply: targetSid not found');
+            process.exit(2);
+        }
+        console.log('apply OK');
         return;
     }
     if (cmd === 'cache') {
@@ -349,14 +420,51 @@ async function main() {
         const policy = policyPath && fs_1.default.existsSync(policyPath) ? JSON.parse(fs_1.default.readFileSync(policyPath, 'utf8')) : null;
         const policyReport = policy ? checkPolicyDetailed([{ path: entry, ast }], policy) : { errors: [], warnings: [] };
         const ok = policyReport.errors.length === 0 && (!strictWarn || policyReport.warnings.length === 0);
-        const out = { ok, value: res.value, trace: res.trace, policy: policyReport, deniedEffects: Array.from(deniedEffects) };
+        const out = { ok, value: res.value, trace: res.trace, policy: policyReport, deniedEffects: Array.from(deniedEffects), denials: res.denials ?? [] };
         console.log(JSON.stringify(out, null, 2));
+        // If any denials occurred at runtime, emit error and exit non-zero
+        if (res.denials && res.denials.length > 0) {
+            for (const d of res.denials)
+                console.error(`denied: ${d.effect} (${d.reason})`);
+            process.exit(1);
+        }
         if (!ok)
             process.exit(2);
         return;
     }
     if (cmd === 'check') {
         // Collect files: if a single file, include its transitive imports; if a dir, traverse dir
+        const sidSnapIdx = rest.indexOf('--sid-snapshot');
+        if (sidSnapIdx >= 0) {
+            const snapPath = rest[sidSnapIdx + 1] ? path_1.default.resolve(rest[sidSnapIdx + 1]) : process.cwd();
+            const files = fs_1.default.lstatSync(snapPath).isDirectory() ? collectLumFiles(snapPath, true) : [snapPath];
+            const nodes = [];
+            for (const f of files) {
+                const src = fs_1.default.readFileSync(f, 'utf8');
+                const ast = (0, parser_1.parse)(src);
+                (0, core_ir_1.assignStableSids)(ast);
+                function collect(e) {
+                    if (!e || typeof e !== 'object')
+                        return;
+                    // collect SIDs for top-level decls
+                    if (e.kind === 'Fn' || e.kind === 'ActorDecl' || e.kind === 'ActorDeclNew' || e.kind === 'EnumDecl' || e.kind === 'QueryDecl' || e.kind === 'StoreDecl' || e.kind === 'SchemaDecl') {
+                        nodes.push({ sid: e.sid, kind: e.kind, name: e.name ?? undefined, file: f });
+                    }
+                    for (const k of Object.keys(e)) {
+                        const v = e[k];
+                        if (v && typeof v === 'object' && 'kind' in v)
+                            collect(v);
+                        if (Array.isArray(v))
+                            for (const it of v)
+                                if (it && typeof it === 'object' && 'kind' in it)
+                                    collect(it);
+                    }
+                }
+                collect(ast);
+            }
+            console.log(JSON.stringify({ nodes }, null, 2));
+            return;
+        }
         const files = isDir
             ? collectLumFiles(resolved, recursive)
             : Array.from(new Set([resolved, ...collectImportsTransitive(resolved)]));
@@ -694,11 +802,10 @@ function structurallySimilar(a, b) {
         }
         return true;
     }
-    const keysA = Object.keys(a).filter(k => k !== 'sid');
-    const keysB = Object.keys(b).filter(k => k !== 'sid');
-    if (keysA.length !== keysB.length)
-        return false;
-    for (const k of keysA) {
+    const keysA = Object.keys(a).filter(k => k !== 'sid' && k !== 'span');
+    const keysB = Object.keys(b).filter(k => k !== 'sid' && k !== 'span');
+    const keySet = new Set([...keysA, ...keysB]);
+    for (const k of keySet) {
         if (!structEqual(a[k], b[k]))
             return false;
     }

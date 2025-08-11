@@ -37,16 +37,27 @@ function usage() {
 }
 
 async function main() {
-  let [,, cmd, target, ...rest] = process.argv
+  let [,, cmd, maybeTarget, ...rest] = process.argv
   if (!cmd) { usage(); process.exit(1) }
+  // Allow flags before the path, e.g., `fmt --write .`
+  let target = maybeTarget as string | undefined
+  const allArgs = [maybeTarget, ...rest].filter(Boolean) as string[]
+  const write = allArgs.includes('--write')
+  const recursive = allArgs.includes('--recursive')
+  if (!target || target.startsWith('-')) {
+    const nonFlag = rest.find(a => a && !a.startsWith('-'))
+    if (nonFlag) {
+      const idx = rest.indexOf(nonFlag)
+      if (idx !== -1) rest.splice(idx, 1)
+      target = nonFlag
+    }
+  }
   if (!target) {
-    if (cmd === 'serve' || cmd === 'cache') target = '.'
+    if (cmd === 'serve' || cmd === 'cache' || cmd === 'fmt' || cmd === 'check' || cmd === 'test') target = '.'
     else { usage(); process.exit(1) }
   }
   const resolved = path.resolve(target)
   const isDir = fs.existsSync(resolved) && fs.lstatSync(resolved).isDirectory()
-  const write = rest.includes('--write')
-  const recursive = rest.includes('--recursive')
   const runOnFiles = (files: string[], fn: (p: string) => void) => {
     for (const f of files) fn(f)
   }
@@ -92,8 +103,14 @@ async function main() {
       function rewrite(e: any): void {
         if (!e || typeof e !== 'object') return
         if (e.kind === 'Fn' && e.sid === spec.targetSid) {
-          e.body = parse(spec.newBody)
-          assignStableSids(e.body)
+          const parsed = parse(spec.newBody)
+          let newBody: any = parsed
+          if (parsed && parsed.kind === 'Program') {
+            const decls = (parsed as any).decls || []
+            if (decls.length === 1 && decls[0].kind === 'Let') newBody = decls[0].expr
+          }
+          assignStableSids(newBody)
+          e.body = newBody
           changed = true
         }
         for (const k of Object.keys(e)) {
@@ -319,8 +336,13 @@ async function main() {
     const policy = policyPath && fs.existsSync(policyPath) ? JSON.parse(fs.readFileSync(policyPath, 'utf8')) : null
     const policyReport = policy ? checkPolicyDetailed([{ path: entry, ast }], policy) : { errors: [], warnings: [] as string[] }
     const ok = policyReport.errors.length === 0 && (!strictWarn || policyReport.warnings.length === 0)
-    const out = { ok, value: res.value, trace: res.trace, policy: policyReport, deniedEffects: Array.from(deniedEffects) }
+    const out = { ok, value: res.value, trace: res.trace, policy: policyReport, deniedEffects: Array.from(deniedEffects), denials: (res as any).denials ?? [] }
     console.log(JSON.stringify(out, null, 2))
+    // If any denials occurred at runtime, emit error and exit non-zero
+    if ((res as any).denials && (res as any).denials.length > 0) {
+      for (const d of (res as any).denials) console.error(`denied: ${d.effect} (${d.reason})`)
+      process.exit(1)
+    }
     if (!ok) process.exit(2)
     return
   }
@@ -636,11 +658,11 @@ function structurallySimilar(a: any, b: any): boolean {
     }
     return true
   }
-  const keysA = Object.keys(a).filter(k => k !== 'sid')
-  const keysB = Object.keys(b).filter(k => k !== 'sid')
-  if (keysA.length !== keysB.length) return false
-  for (const k of keysA) {
-    if (!structEqual(a[k], b[k])) return false
+  const keysA = Object.keys(a).filter(k => k !== 'sid' && k !== 'span')
+  const keysB = Object.keys(b).filter(k => k !== 'sid' && k !== 'span')
+  const keySet = new Set<string>([...keysA, ...keysB])
+  for (const k of keySet) {
+    if (!structEqual((a as any)[k], (b as any)[k])) return false
   }
   return true
 }

@@ -1,0 +1,2 @@
+fn hello() = 2
+let tmp_1 = hello()
