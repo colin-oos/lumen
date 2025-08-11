@@ -37,16 +37,27 @@ function usage() {
 }
 
 async function main() {
-  let [,, cmd, target, ...rest] = process.argv
+  let [,, cmd, maybeTarget, ...rest] = process.argv
   if (!cmd) { usage(); process.exit(1) }
+  // Allow flags before the path, e.g., `fmt --write .`
+  let target = maybeTarget as string | undefined
+  const allArgs = [maybeTarget, ...rest].filter(Boolean) as string[]
+  const write = allArgs.includes('--write')
+  const recursive = allArgs.includes('--recursive')
+  if (!target || target.startsWith('-')) {
+    const nonFlag = rest.find(a => a && !a.startsWith('-'))
+    if (nonFlag) {
+      const idx = rest.indexOf(nonFlag)
+      if (idx !== -1) rest.splice(idx, 1)
+      target = nonFlag
+    }
+  }
   if (!target) {
-    if (cmd === 'serve' || cmd === 'cache') target = '.'
+    if (cmd === 'serve' || cmd === 'cache' || cmd === 'fmt' || cmd === 'check' || cmd === 'test') target = '.'
     else { usage(); process.exit(1) }
   }
   const resolved = path.resolve(target)
   const isDir = fs.existsSync(resolved) && fs.lstatSync(resolved).isDirectory()
-  const write = rest.includes('--write')
-  const recursive = rest.includes('--recursive')
   const runOnFiles = (files: string[], fn: (p: string) => void) => {
     for (const f of files) fn(f)
   }
